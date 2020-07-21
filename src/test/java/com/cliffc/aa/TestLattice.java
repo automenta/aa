@@ -78,10 +78,10 @@ import static org.junit.Assert.assertTrue;
 
 
 public class TestLattice {
-  static class N {
+  public static class N {
     private static int ID=0;
     static Ary<N> NS=new Ary<>(new N[1],0);
-    static void reset() { NS.clear(); ID=0; }
+    public static void reset() { NS.clear(); ID=0; }
     final int _id;
     final String _t;
     final Ary<N> _subs;
@@ -89,7 +89,7 @@ public class TestLattice {
     final BitSet _reaches; // Who reaches this node, including self
     int _cnt;              // Reaches count
     N _dual;
-    N(String t, N... subs) {
+    public N(String t, N... subs) {
       _id = ID++;
       _t=t;
       _subs = new Ary<>(subs);
@@ -98,12 +98,12 @@ public class TestLattice {
       _dual = this;
       NS.add(this);
     }
-    void set_dual( N d ) {
+    public void set_dual(N d) {
       assert _dual==this && d._dual==d;
       _dual=d; d._dual=this;
     }
     // Setup reverse edges for later walks
-    void walk_set_sup( BitSet bs ) {
+    public void walk_set_sup(BitSet bs) {
       if( bs.get(_id) ) return;
       bs.set(_id);
       for( N sub : _subs ) sub._sups.add(this);
@@ -117,7 +117,7 @@ public class TestLattice {
       for( N sub : _subs ) sub.walk_print(bs,indent+1);
     }
 
-    void walk(BiConsumer<N,N> each) {
+    public void walk(BiConsumer<N, N> each) {
       walk(new BitSet(), each);
     }
     void walk(BitSet bs, BiConsumer<N,N> each) {

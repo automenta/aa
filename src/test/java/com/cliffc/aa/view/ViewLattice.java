@@ -1,5 +1,6 @@
-package com.cliffc.aa;
+package com.cliffc.aa.view;
 
+import com.cliffc.aa.TestLattice;
 import jcog.data.graph.MapNodeGraph;
 import jcog.data.graph.Node;
 import spacegraph.space2d.container.graph.Graph2D;
@@ -54,15 +55,13 @@ public class ViewLattice {
 
         xscl.walk_set_sup(new BitSet()); // Fill in the reverse edges
 
-        MapNodeGraph<Object,Object> h = new MapNodeGraph<>();
-        xscl.walk((parent,n) -> {
-            h.addEdge(n, "->", parent);
-        });
+        MapNodeGraph<Object,Object> g = new MapNodeGraph<>();
+        xscl.walk((parent,n) -> g.addEdge(n, "->", parent));
 
         window(new Graph2D<Node<Object, Object>>()
                     .update(new ForceDirected2D<>())
                     .render(new NodeGraphRenderer<>())
-                    .set(h)
+                    .set(g)
                     .widget(),
                 800, 800);
 

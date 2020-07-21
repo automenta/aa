@@ -783,7 +783,7 @@ strs:List(str?) = ... // List of null-or-strings
    */
 
   // Caller must close TypeEnv
-  static private TypeEnv run( String program ) {
+  static public TypeEnv run( String program ) {
     TypeEnv te = Exec.open(Env.file_scope(Env.top_scope()),"args",program);
     if( te._errs != null ) System.err.println(te._errs.toString());
     assertNull(te._errs);

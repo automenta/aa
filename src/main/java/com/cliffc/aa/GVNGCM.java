@@ -22,7 +22,7 @@ public class GVNGCM {
   public int _opt_mode;         // 0 - Parse (discovery), 1 - iter (lifting), 2 - gcp/opto (falling)
 
   // Iterative worklist
-  private final Ary<Node> _work = new Ary<>(new Node[1], 0);
+  public final Ary<Node> _work = new Ary<>(new Node[1], 0);
   private final BitSet _wrk_bits = new BitSet();
 
   public Node add_work( Node n ) { if( !_wrk_bits.get(n._uid) ) add_work0(n); return n;}
@@ -57,11 +57,11 @@ public class GVNGCM {
   // Array of types representing current node types.  Essentially a throw-away
   // temp extra field on Nodes.  It is either bottom-up, conservatively correct
   // or top-down and optimistic.
-  private final Ary<Type> _ts = new Ary<>(new Type[1],0);
+  public final Ary<Type> _ts = new Ary<>(new Type[1],0);
 
   // Global expressions, to remove redundant Nodes
   private final ConcurrentHashMap<Node,Node> _vals = new ConcurrentHashMap<>();
-  Set<Node> valsKeySet() { return _vals.keySet(); }
+  public Set<Node> valsKeySet() { return _vals.keySet(); }
 
   // Initial state after loading e.g. primitives.
   public static int _INIT0_CNT;
