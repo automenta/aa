@@ -6,6 +6,7 @@ import org.junit.Test;
 import org.junit.Ignore;
 
 import java.util.BitSet;
+import java.util.function.BiConsumer;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
@@ -77,7 +78,7 @@ import static org.junit.Assert.assertTrue;
 
 
 public class TestLattice {
-  private static class N {
+  static class N {
     private static int ID=0;
     static Ary<N> NS=new Ary<>(new N[1],0);
     static void reset() { NS.clear(); ID=0; }
@@ -115,6 +116,21 @@ public class TestLattice {
       System.out.println(new SB().i(indent).toString()+toString());
       for( N sub : _subs ) sub.walk_print(bs,indent+1);
     }
+
+    void walk(BiConsumer<N,N> each) {
+      walk(new BitSet(), each);
+    }
+    void walk(BitSet bs, BiConsumer<N,N> each) {
+
+      if( bs.get(_id) ) return;
+      bs.set(_id);
+      //System.out.println(new SB().i(indent).toString()+toString());
+      for( N sub : _subs ) {
+        each.accept(this, sub);
+        sub.walk(bs, each);
+      }
+    }
+
     @Override public String toString() {
       SB sb = new SB().p(_t).p(" -> ");
       for( N sub : _subs ) sb.p(sub._t).p(" ");
@@ -153,7 +169,7 @@ public class TestLattice {
   }
 
   // Complete the lattice and test it
-  private static void test(N top) {
+  static void test(N top) {
     // Fill in the reverse edges
     top.walk_set_sup(new BitSet());
     // Pretty print
