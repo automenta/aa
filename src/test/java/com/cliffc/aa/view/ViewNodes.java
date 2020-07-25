@@ -1,5 +1,6 @@
 package com.cliffc.aa.view;
 
+import com.cliffc.aa.Env;
 import com.cliffc.aa.GVNGCM;
 import com.cliffc.aa.TestParse;
 import com.cliffc.aa.TypeEnv;
@@ -11,10 +12,15 @@ import com.cliffc.aa.type.TypeMem;
 import com.google.common.collect.Iterables;
 import jcog.Util;
 import jcog.data.graph.MapNodeGraph;
+import jcog.data.graph.NodeGraph;
+import jcog.data.graph.path.FromTo;
+import org.jetbrains.annotations.Nullable;
+import spacegraph.space2d.container.graph.EdgeVis;
 import spacegraph.space2d.container.graph.Graph2D;
 import spacegraph.space2d.container.graph.NodeGraphRenderer;
 import spacegraph.space2d.container.graph.NodeVis;
 import spacegraph.space2d.container.layout.ForceDirected2D;
+import spacegraph.space2d.widget.button.PushButton;
 
 import java.util.List;
 
@@ -23,28 +29,47 @@ import static spacegraph.SpaceGraph.window;
 
 public class ViewNodes {
 
-    final Graph2D<Node> v = new Graph2D<>();
-    final MapNodeGraph<Node,Object> g = new MapNodeGraph<>();
+    final Graph2D<NodeGraph.MutableNode<Node,String>> v = new Graph2D<>();
+    final MapNodeGraph<Node,String> g = new MapNodeGraph<>();
 
+    //TODO enum colorMode
 
-    private final Graph2D.Graph2DRenderer<Node> SCALE_BY_USES = (v, edit) -> {
-        v.colorHash();
-        v.pri = Util.sqrt(1 + v.id._uses.len());
+    NodeGraphRenderer r = new NodeGraphRenderer<Node, String>() {
+
+        @Override
+        public void node(NodeVis<jcog.data.graph.Node<Node, String>> from, Graph2D.GraphEditor<jcog.data.graph.Node<Node, String>> graph) {
+            super.node(from, graph);
+            Node n = from.id.id();
+            TypeMem t = n._live;
+
+            from.pri = n._uses.len();
+
+            PushButton b = new PushButton(n.xstr() /* todo abbr */).clicked(() -> {
+                System.out.println(n.dump(16));
+            });
+            b.color.hsl(t._hash*128, 0.9f, 0.2f);
+//            from.colorHash(t._hash);
+            from.set(b);
+        }
+
+        @Override
+        protected void edge(NodeVis<jcog.data.graph.Node<Node, String>> from, FromTo<jcog.data.graph.Node<Node, String>, String> edge, @Nullable EdgeVis<jcog.data.graph.Node<Node, String>> edgeVis, jcog.data.graph.Node<Node, String> to) {
+            //super.edge(from, edge, edgeVis, to);
+            float w = 1f/(1+from.id.id()._uses.len());
+            String e = edge.id();
+            switch (e) {
+                case "uses":
+                    edgeVis.color(w, 1-w, 0, w).weightAddLerp(Util.sqr(w), 0.5f);
+                    break;
+                default:
+                    throw new UnsupportedOperationException();
+            }
+        }
     };
 
-    private final Graph2D.Graph2DRenderer<Node> USES = (v, edit) -> {
-        float w = 1f / (1+ v.id._uses.len());
-        v.id._uses.forEach(u -> {
-            edit.edge(v, u).color(1-w, w, 0, 0.5f).weight(w);
-        });
-    };
-    private final Graph2D.Graph2DRenderer<Node> DEFS = (v, edit) -> {
-        v.id._defs.forEach(u -> {
-            if (u!=null)
-                edit.edge(v, u).color(0, 1, 0, 0.25f).weight(0.25f);
-        });
-    };
-
+    public ViewNodes(TypeEnv e) {
+        this(List.of(e._env._scope, e._env._par!=null?e._env._par._scope : null));
+    }
     public ViewNodes(Node nodes) {
         this(List.of(nodes));
     }
@@ -53,12 +78,12 @@ public class ViewNodes {
 
         nodes.forEach(this::addNode);
 
-        //g.print();
+        g.print();
+
 
         window(v.update(new ForceDirected2D<>())
-                .set(g.nodeIDs()) //HACK fix the api
-                .render(new NodeGraphRenderer<>(), USES/*, DEFS*/, SCALE_BY_USES)
-                .set(g.nodeIDs())
+                .render(r)
+                .set(g)
                 .widget(),
                 800, 800);
     }
@@ -66,15 +91,27 @@ public class ViewNodes {
     private void addNode(Node n) {
         if (n == null) return;
 
+        if (n.is_dead()) return; //TODO
+
         if (g.addNewNode(n)) {
-            n._uses.forEach(this::addNode);
-            n._defs.forEach(this::addNode);
+            n._uses.forEach(u -> {
+                addNode(u);
+                g.addEdge(n, "uses", u);
+            });
+
+            n._defs.forEach(d -> {
+                if (d!=null) {
+                    addNode(d);
+//                    g.addEdge(n, "def", d);
+                }
+            });
         }
     }
 
     public static void main(String[] args) {
         new ViewNodes(TestParse.run(
-            "fact = { x -> x <= 1 ? x : x*fact(x-1) }; fact(3)"
-        )._env._scope);
+                //"x=1"
+                "fact = { x -> x <= 1 ? x : x*fact(x-1) }; fact(3)"
+        ));
     }
 }

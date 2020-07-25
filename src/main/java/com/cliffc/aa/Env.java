@@ -16,7 +16,7 @@ public class Env implements AutoCloseable {
   public static BitsAlias DISPLAYS = BitsAlias.EMPTY;
 
 
-  final Env _par;                // Parent environment
+  public final Env _par;                // Parent environment
   public final ScopeNode _scope; // Lexical anchor; "end of display"; goes when this environment leaves scope
   Parse _P;                      // Used to get debug info
 

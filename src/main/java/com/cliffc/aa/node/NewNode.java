@@ -61,7 +61,7 @@ public abstract class NewNode<T extends TypeObj<T>> extends Node {
     _escapees.set(_alias);
     sets(to,null);
   }
-  String xstr() { return "New"+(_not_escaped?"":"!")+"*"+_alias; } // Self short name
+  public String xstr() { return "New"+(_not_escaped?"":"!")+"*"+_alias; } // Self short name
   String  str() { return "New"+(_not_escaped?"":"!")+_ts; } // Inline less-short name
 
   Node mem() { return in(1); }

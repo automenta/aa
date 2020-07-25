@@ -11,7 +11,8 @@ import java.util.Arrays;
 public class UnresolvedNode extends Node {
   private Parse _bad;
   UnresolvedNode( Parse bad, Node... funs ) { super(OP_UNR,funs); _bad = bad; }
-  @Override String xstr() {
+  @Override
+  public String xstr() {
     if( is_dead() ) return "DEAD";
     if( in(0) instanceof FunPtrNode ) {
       FunPtrNode fptr = (FunPtrNode)in(0);

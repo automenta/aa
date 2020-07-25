@@ -24,7 +24,7 @@ public class StoreNode extends Node {
   private StoreNode( StoreNode st, Node mem, Node adr ) { this(mem,adr,st.val(),st._fin,st._fld,st._bad); }
   //public  StoreNode( StoreNode st, Node ctr, Node mem, Node adr, Node val ) { this(ctr,mem,adr,   val  ,st._fin,st._eqv,st._bad); }
 
-  String xstr() { return "."+_fld+"="; } // Self short name
+  public String xstr() { return "."+_fld+"="; } // Self short name
   String  str() { return xstr(); }   // Inline short name
   @Override boolean is_mem() { return true; }
 

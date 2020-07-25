@@ -21,7 +21,7 @@ import com.cliffc.aa.util.IBitSet;
 public final class CallEpiNode extends Node {
   boolean _is_copy;         // One-shot flag set when inlining an entire single-caller-single-called
   public CallEpiNode( Node... nodes ) { super(OP_CALLEPI,nodes);  assert nodes[1] instanceof DefMemNode; }
-  String xstr() { return ((is_dead() || is_copy()) ? "x" : "C")+"allEpi"; } // Self short name
+  public String xstr() { return ((is_dead() || is_copy()) ? "x" : "C")+"allEpi"; } // Self short name
   public CallNode call() { return (CallNode)in(0); }
   @Override boolean is_mem() { return true; }
   int nwired() { return _defs._len-2; }

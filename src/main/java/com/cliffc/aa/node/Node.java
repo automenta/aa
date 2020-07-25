@@ -182,7 +182,7 @@ public abstract class Node implements Cloneable {
   }
 
   // Short string name
-  String xstr() { return STRS[_op]; } // Self   short  name
+  public String xstr() { return STRS[_op]; } // Self   short  name
   String  str() { return xstr(); }    // Inline longer name
   @Override public String toString() { return dump(0,new SB(),false).toString(); }
   // Dump

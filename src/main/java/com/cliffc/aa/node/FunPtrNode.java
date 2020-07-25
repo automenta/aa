@@ -20,7 +20,8 @@ public final class FunPtrNode extends Node {
   public Node display(){ return in(1); }
   public FunNode fun() { return ret().fun(); }
   // Self short name
-  @Override String xstr() {
+  @Override
+  public String xstr() {
     if( is_dead() ) return "*fun";
     int fidx = ret()._fidx;    // Reliably returns a fidx
     FunNode fun = FunNode.find_fidx(fidx);

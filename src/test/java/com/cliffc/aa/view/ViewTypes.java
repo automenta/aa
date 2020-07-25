@@ -11,7 +11,21 @@ import java.util.BitSet;
 
 import static spacegraph.SpaceGraph.window;
 
-public class ViewLattice {
+public class ViewTypes {
+
+    final MapNodeGraph<Object,Object> g = new MapNodeGraph<>();
+
+    public ViewTypes(TestLattice.N n) {
+
+        n.walk((parent,sub) -> g.addEdge(sub, "->", parent)); //TODO use dfs()
+
+        window(new Graph2D<Node<Object, Object>>()
+                        .update(new ForceDirected2D<>())
+                        .render(new NodeGraphRenderer<>())
+                        .set(g)
+                        .widget(),
+                800, 800);
+    }
 
     public static void main(String[] args) {
         /* from: testLattice0 */
@@ -55,16 +69,7 @@ public class ViewLattice {
 
         xscl.walk_set_sup(new BitSet()); // Fill in the reverse edges
 
-        MapNodeGraph<Object,Object> g = new MapNodeGraph<>();
-        xscl.walk((parent,n) -> g.addEdge(n, "->", parent));
-
-        window(new Graph2D<Node<Object, Object>>()
-                    .update(new ForceDirected2D<>())
-                    .render(new NodeGraphRenderer<>())
-                    .set(g)
-                    .widget(),
-                800, 800);
-
+        new ViewTypes(xscl);
     }
 
 }

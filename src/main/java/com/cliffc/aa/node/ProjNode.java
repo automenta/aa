@@ -10,7 +10,8 @@ public class ProjNode extends Node {
   public int _idx;
   public ProjNode( Node ifn, int idx ) { this(OP_PROJ,ifn,idx); }
   ProjNode( byte op, Node ifn, int idx ) { super(op,ifn); _idx=idx; }
-  @Override String xstr() { return "DProj"+_idx; }
+  @Override
+  public String xstr() { return "DProj"+_idx; }
 
   @Override public Node ideal(GVNGCM gvn, int level) {
     Node c = in(0).is_copy(gvn,_idx);

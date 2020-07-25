@@ -11,7 +11,8 @@ public final class ErrNode extends Node {
   final String _msg;            // Error message
   final Parse _bad;             // Optional open point for missing close
   public ErrNode( Node ctrl, String msg, Parse bad ) { super(OP_ERR,ctrl); _msg = msg; _bad = bad; _live= TypeMem.ESCAPE; }
-  @Override String xstr() { return _msg.split("\n")[1]; }
+  @Override
+  public String xstr() { return _msg.split("\n")[1]; }
   @Override String str() { return "Err"; }
   @Override public Node ideal(GVNGCM gvn, int level) { return null; }
   @Override public Type value(GVNGCM gvn) {

@@ -95,7 +95,8 @@ public class FunNode extends RegionNode {
   // Fast reset of parser state between calls to Exec
 
   // Short self name
-  @Override String xstr() { return name(); }
+  @Override
+  public String xstr() { return name(); }
   // Inline longer info
   @Override public String str() { return is_forward_ref() ? xstr() : _sig.str(null); }
   // Name from fidx alone

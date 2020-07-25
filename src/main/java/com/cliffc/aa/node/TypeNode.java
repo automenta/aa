@@ -21,7 +21,8 @@ public class TypeNode extends Node {
     _t=t;
     _error_parse = P;
   }
-  @Override String xstr() { return "assert:"+_t; }
+  @Override
+  public String xstr() { return "assert:"+_t; }
   Node mem() { return in(1); }
   Node arg() { return in(2); }
 

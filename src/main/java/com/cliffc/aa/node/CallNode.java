@@ -94,7 +94,7 @@ public class CallNode extends Node {
     _badargs = badargs;
   }
 
-  String xstr() { return ((is_dead() || is_copy()) ? "x" : "C")+"all#"+_rpc; } // Self short name
+  public String xstr() { return ((is_dead() || is_copy()) ? "x" : "C")+"all#"+_rpc; } // Self short name
   String  str() { return xstr(); }       // Inline short name
   @Override boolean is_mem() { return true; }
 
