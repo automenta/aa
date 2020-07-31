@@ -13,9 +13,9 @@ import static spacegraph.SpaceGraph.window;
 
 public class ViewTypes {
 
-    final MapNodeGraph<Object,Object> g = new MapNodeGraph<>();
+    private final MapNodeGraph<Object,Object> g = new MapNodeGraph<>();
 
-    public ViewTypes(TestLattice.N n) {
+    private ViewTypes(TestLattice.N n) {
 
         n.walk((parent,sub) -> g.addEdge(sub, "->", parent)); //TODO use dfs()
 

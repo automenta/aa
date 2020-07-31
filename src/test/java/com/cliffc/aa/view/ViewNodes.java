@@ -1,15 +1,9 @@
 package com.cliffc.aa.view;
 
-import com.cliffc.aa.Env;
-import com.cliffc.aa.GVNGCM;
 import com.cliffc.aa.TestParse;
 import com.cliffc.aa.TypeEnv;
-import com.cliffc.aa.node.ConNode;
 import com.cliffc.aa.node.Node;
-import com.cliffc.aa.node.ScopeNode;
-import com.cliffc.aa.type.TypeInt;
 import com.cliffc.aa.type.TypeMem;
-import com.google.common.collect.Iterables;
 import jcog.Util;
 import jcog.data.graph.MapNodeGraph;
 import jcog.data.graph.NodeGraph;
@@ -24,17 +18,16 @@ import spacegraph.space2d.widget.button.PushButton;
 
 import java.util.List;
 
-import static org.junit.Assert.assertEquals;
 import static spacegraph.SpaceGraph.window;
 
 public class ViewNodes {
 
-    final Graph2D<NodeGraph.MutableNode<Node,String>> v = new Graph2D<>();
-    final MapNodeGraph<Node,String> g = new MapNodeGraph<>();
+    private final Graph2D<NodeGraph.MutableNode<Node,String>> v = new Graph2D<>();
+    private final MapNodeGraph<Node,String> g = new MapNodeGraph<>();
 
     //TODO enum colorMode
 
-    NodeGraphRenderer r = new NodeGraphRenderer<Node, String>() {
+    private final NodeGraphRenderer r = new NodeGraphRenderer<Node, String>() {
 
         @Override
         public void node(NodeVis<jcog.data.graph.Node<Node, String>> from, Graph2D.GraphEditor<jcog.data.graph.Node<Node, String>> graph) {
@@ -44,9 +37,7 @@ public class ViewNodes {
 
             from.pri = n._uses.len();
 
-            PushButton b = new PushButton(n.xstr() /* todo abbr */).clicked(() -> {
-                System.out.println(n.dump(16));
-            });
+            PushButton b = new PushButton(n.xstr() /* todo abbr */).clicked(() -> System.out.println(n.dump(16)));
             b.color.hsl(t._hash*128, 0.9f, 0.2f);
 //            from.colorHash(t._hash);
             from.set(b);
@@ -67,14 +58,14 @@ public class ViewNodes {
         }
     };
 
-    public ViewNodes(TypeEnv e) {
+    private ViewNodes(TypeEnv e) {
         this(List.of(e._env._scope, e._env._par!=null?e._env._par._scope : null));
     }
     public ViewNodes(Node nodes) {
         this(List.of(nodes));
     }
 
-    public ViewNodes(Iterable<Node> nodes) {
+    private ViewNodes(Iterable<Node> nodes) {
 
         nodes.forEach(this::addNode);
 
