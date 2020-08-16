@@ -44,7 +44,7 @@ public class TypeNode extends Node {
       args[2] = arg;            // The whole TFP to the call
       for( int i=1; i<sig.nargs(); i++ )  // First is display
         // All the parms; types in the function signature
-        args[i+2] = gvn.xform(new ParmNode(i,"arg"+i,fun,gvn.con(Type.SCALAR),null));
+        args[i+2] = gvn.xform(new ParmNode(i,"arg"+i,fun,gvn.con(Type.SCALAR),_error_parse));
       Parse[] badargs = new Parse[sig.nargs()];
       Arrays.fill(badargs,_error_parse);
       Node rpc= gvn.xform(new ParmNode(-1,"rpc",fun,gvn.con(TypeRPC.ALL_CALL),null));
@@ -52,7 +52,7 @@ public class TypeNode extends Node {
       Node cepi   = gvn.xform(new CallEpiNode(call,Env.DEFMEM)).keep();
       Node ctl    = gvn.xform(new CProjNode(cepi,0));
       Node postmem= gvn.xform(new MProjNode(cepi,1)).keep();
-      Node val    = gvn.xform(new  ProjNode(cepi.unhook(),2));
+      Node val    = gvn.xform(new  ProjNode(2, cepi.unhook()));
       // Type-check the return also
       Node chk    = gvn.xform(new  TypeNode(postmem,val,sig._ret,_error_parse));
       RetNode ret = (RetNode)gvn.xform(new RetNode(ctl,postmem.unhook(),chk,rpc,fun));
@@ -102,5 +102,9 @@ public class TypeNode extends Node {
   }
 
   // Check TypeNode for being in-error
-  @Override public String err(GVNGCM gvn) { return _error_parse.typerr(gvn.type(arg()),mem(),_t); }
+  @Override public ErrMsg err(GVNGCM gvn, boolean fast) {
+    Type arg = gvn.type(arg());
+    Type mem = gvn.type(mem());
+    return ErrMsg.typerr(_error_parse,arg,mem,_t);
+  }
 }

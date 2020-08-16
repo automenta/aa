@@ -35,7 +35,7 @@ import com.cliffc.aa.view.data.*;
 import com.cliffc.aa.view.layout.Cluster;
 import com.cliffc.aa.view.layout.Vertex;
 import jcog.math.v2;
-import jcog.tree.rtree.rect.RectFloat;
+import jcog.tree.rtree.rect.RectF;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
@@ -370,8 +370,8 @@ public class Figure extends Entity implements Source.Provider, Vertex {
         return toString().compareTo(f.toString());
     }
 
-    public RectFloat bounds() {
+    public RectF bounds() {
         final v2 p = this.pos();
-        return RectFloat.XYWH(p.x, p.y, this.getWidth(), this.getHeight());
+        return RectF.XYWH(p.x, p.y, this.getWidth(), this.getHeight());
     }
 }

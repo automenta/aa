@@ -6,14 +6,14 @@ import com.cliffc.aa.node.Node;
 import com.cliffc.aa.type.TypeMem;
 import jcog.Util;
 import jcog.data.graph.MapNodeGraph;
-import jcog.data.graph.NodeGraph;
+import jcog.data.graph.MutableNode;
 import jcog.data.graph.path.FromTo;
 import org.jetbrains.annotations.Nullable;
 import spacegraph.space2d.container.graph.EdgeVis;
 import spacegraph.space2d.container.graph.Graph2D;
 import spacegraph.space2d.container.graph.NodeGraphRenderer;
 import spacegraph.space2d.container.graph.NodeVis;
-import spacegraph.space2d.container.layout.ForceDirected2D;
+import spacegraph.space2d.container.layout.SemiForce2D;
 import spacegraph.space2d.widget.button.PushButton;
 
 import java.util.List;
@@ -22,7 +22,7 @@ import static spacegraph.SpaceGraph.window;
 
 public class ViewNodes {
 
-    private final Graph2D<NodeGraph.MutableNode<Node,String>> v = new Graph2D<>();
+    private final Graph2D<MutableNode<Node,String>> v = new Graph2D<>();
     private final MapNodeGraph<Node,String> g = new MapNodeGraph<>();
 
     //TODO enum colorMode
@@ -72,7 +72,10 @@ public class ViewNodes {
         g.print();
 
 
-        window(v.update(new ForceDirected2D<>())
+        window(v.update(
+                    //new Force2D()
+                    new SemiForce2D.TreeForce2D<>()
+                )
                 .render(r)
                 .set(g)
                 .widget(),

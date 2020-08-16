@@ -6,9 +6,8 @@ import com.cliffc.aa.type.*;
 
 // Proj object
 public class OProjNode extends ProjNode {
-  public OProjNode( Node ifn, int idx ) { super(ifn,idx); }
-  @Override
-  public String xstr() { return "OProj_"+_idx; }
+  public OProjNode( Node ifn, int idx ) { super(idx, ifn); }
+  @Override public String xstr() { return "OProj_"+_idx; }
   @Override public Node ideal(GVNGCM gvn, int level) {
     // Only memory use is default memory - means no loads, no stores.  Only the
     // pointer-use remains.

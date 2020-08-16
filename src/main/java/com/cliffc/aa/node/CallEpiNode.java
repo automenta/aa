@@ -1,9 +1,9 @@
 package com.cliffc.aa.node;
 
+import com.cliffc.aa.Env;
 import com.cliffc.aa.GVNGCM;
 import com.cliffc.aa.type.*;
 import com.cliffc.aa.util.Ary;
-import com.cliffc.aa.util.IBitSet;
 import com.cliffc.aa.util.VBitSet;
 
 // See CallNode.  Slot 0 is the Call.  The remaining slots are Returns which
@@ -24,9 +24,8 @@ public final class CallEpiNode extends Node {
   public CallEpiNode( Node... nodes ) { super(OP_CALLEPI,nodes);  assert nodes[1] instanceof DefMemNode; }
   public String xstr() { return (is_dead() ? "X" : "C")+"allEpi";  } // Self short name
   public CallNode call() { return (CallNode)in(0); }
-  @Override boolean is_mem() { return true; }
+  @Override public boolean is_mem() { return true; }
   int nwired() { return _defs._len-2; }
-  static int wire_num(int x) { return x+2; }
   RetNode wired(int x) { return (RetNode)in(x+2); }
 
   @Override public Node ideal(GVNGCM gvn, int level) {
@@ -101,8 +100,7 @@ public final class CallEpiNode extends Node {
       if( parm instanceof ParmNode && parm.in(0)==fun ) {
         int idx = ((ParmNode)parm)._idx;
         if( idx == -1 ) continue; // RPC not an arg
-        Node arg = idx==-2 ? call.mem() : call.arg(idx);
-        Type actual = gvn.type(arg);
+        Type actual = idx==-2 ? CallNode.emem(tcall) : CallNode.targ(tcall,idx);
         // Display arg comes from function pointer
         if( idx==0 ) actual = (actual instanceof TypeFunPtr) ? ((TypeFunPtr)actual)._disp : Type.SCALAR;
         Type tparm = gvn.type(parm); // Pre-GCP this should be the default type
@@ -126,7 +124,8 @@ public final class CallEpiNode extends Node {
     // Check that function return memory and post-call memory are compatible
     Type tself = gvn.type(this);
     if( !(tself instanceof TypeTuple) ) return null;
-    if( !gvn.type(rmem).isa( ((TypeTuple)tself).at(1)) )
+    Type selfmem = ((TypeTuple)tself).at(1);
+    if( !gvn.type(rmem).isa( selfmem ) && !(selfmem==TypeMem.ANYMEM && call.is_pure_call()!=null) )
       return null;
 
     // Check for zero-op body (id function)
@@ -217,8 +216,8 @@ public final class CallEpiNode extends Node {
       case -1: actual = new ConNode<>(TypeRPC.make(call._rpc)); live = TypeMem.ALIVE; break; // Always RPC is a constant
       case -2: actual = new MProjNode(call,CallNode.MEMIDX); live = arg._live; break;    // Memory into the callee
       default: actual = idx >= call.nargs()              // Check for args present
-          ? new ConNode<>(Type.XSCALAR) // Missing args, still wire (to keep FunNode neighbors) but will error out later.
-          : new ProjNode(call,idx+CallNode.ARGIDX); // Normal args
+          ? new ConNode<>(Type.ALL) // Missing args, still wire (to keep FunNode neighbors) but will error out later.
+          : new ProjNode(idx+CallNode.ARGIDX, call); // Normal args
         live = TypeMem.ESCAPE;
         break;
       }
@@ -258,18 +257,19 @@ public final class CallEpiNode extends Node {
     Type ctl = CallNode.tctl(tcall); // Call is reached or not?
     if( ctl != Type.CTRL && ctl != Type.ALL )
       return TypeTuple.CALLE.dual();
-    TypeFunPtr tfptr  = CallNode.ttfpx(tcall);// Peel apart Call tuple
+    TypeFunPtr tfptr= CallNode.ttfpx(tcall); // Peel apart Call tuple
+    TypeMemPtr tescs= call().tesc(tcall);    // Peel apart Call tuple
 
-    if( tfptr==null || tfptr.is_forward_ref() ) return TypeTuple.CALLE; // Still in the parser.
+    // Fidxes; if still in the parser, assuming calling everything
+    BitsFun fidxs = tfptr==null || tfptr.is_forward_ref() ? BitsFun.FULL : tfptr.fidxs();
     // NO fidxs, means we're not calling anything.
-    BitsFun fidxs = tfptr.fidxs();
     if( fidxs==BitsFun.EMPTY ) return TypeTuple.CALLE.dual();
     if( fidxs.above_center() ) return TypeTuple.CALLE.dual(); // Not resolved yet
 
     // Default memory: global worse-case scenario
     Node defnode = in(1);
     Type defmem = gvn.type(defnode);
-    
+
     // Any not-wired unknown call targets?
     if( fidxs!=BitsFun.FULL ) {
       // If fidxs includes a parent fidx, then it was split - currently exactly
@@ -318,40 +318,53 @@ public final class CallEpiNode extends Node {
     }
     TypeMem post_call = (TypeMem)tmem;
 
+    // If no memory projection, then do not compute memory
+    if( gvn._opt_mode > 0 && ProjNode.proj(this,1)==null )
+      return TypeTuple.make(Type.CTRL,TypeMem.ANYMEM,trez);
+
     // Build epilog memory.
 
-    // If pre-call is UNUSED and defmem is ESCAPED then the call makes new
-    // memory; use post-call.
-    // If pre-call is NO-ESCAPE then use pre-call.
-    // If pre-call is ESCAPED, but defmem is NO-ESCAPE then pre-call is stale
-    // but and eventually we'll use pre-call.  Use it now.
-    // If pre-call is ESCAPED and DEFMEM is also ESCAPED, then use post-call.
-    TypeMem tdefmem = (TypeMem)defmem;
-    int len = Math.max(caller_mem.len(),post_call.len());
-    if( gvn._opt_mode > 0 ) len = Math.max(len,tdefmem.len() );
-    TypeObj[] tos = new TypeObj[len];
-    for( int i=1; i<tos.length; i++ ) {
-      TypeObj tpre = caller_mem.at(i); // Pre-call memory
-      TypeObj tdef = tdefmem.at(i);    // Default  memory
-      TypeObj tpost= post_call.at(i);  // Post-call memory (merge of returns)
-      TypeObj to;
-      if( tpre==TypeObj.UNUSED ) { // Pre is unused, either never made or dead
-        if( tdef==TypeObj.UNUSED ) to = TypeObj.UNUSED;
-        else if( !tdef._esc )  throw com.cliffc.aa.AA.unimpl();
-        else to = (TypeObj)tpost.join(tdef); // dead & stale or made new in the function body
-      } else if( !tpre._esc ) { // Pre is no-escape
-        to = tpre;
-      } else {                  // Pre is escape
-        if( tdef==TypeObj.UNUSED ) to = tpre;// Def thinks no-escape, so does not pass along
-        else if( !tdef._esc )  throw com.cliffc.aa.AA.unimpl();
-        else to = (TypeObj)tpost.join(tdef).meet(tpre); // We all agree it has escaped, take post
-      }
-      tos[i] = to;
+    // Approximate "live out of call", includes things that are alive before
+    // the call but not flowing in.  Catchs all the "new in call" returns.
+    BitsAlias esc_out = esc_out(post_call,trez);
+    TypeObj[] pubs = new TypeObj[defnode._defs._len];
+    for( int i=1; i<pubs.length; i++ ) {
+      boolean ein  = tescs._aliases.test_recur(i);
+      boolean eout = esc_out       .test_recur(i);
+      pubs[i] = live_out_gcp(ein,eout,caller_mem.at   (i),post_call.at   (i),gvn,defnode.in(i));
     }
-    TypeMem tmem3 = TypeMem.make0(tos);
+    TypeMem tmem3 = TypeMem.make0(pubs);
 
     return TypeTuple.make(Type.CTRL,tmem3,trez);
   }
+
+  static BitsAlias esc_out( TypeMem tmem, Type trez ) {
+    if( trez == Type.XNIL || trez == Type.NIL ) return BitsAlias.EMPTY;
+    if( trez instanceof TypeFunPtr ) trez = ((TypeFunPtr)trez)._disp;
+    if( trez instanceof TypeMemPtr )
+      return tmem.all_reaching_aliases(((TypeMemPtr)trez)._aliases);
+    return TypeMemPtr.OOP0.dual().isa(trez) ? BitsAlias.NZERO : BitsAlias.EMPTY;
+  }
+
+  // If pre-GCP, must lift the types
+  // as strong as the Parser, which is a join with default memory.
+  private static TypeObj live_out_gcp(boolean esc_in, boolean esc_out, TypeObj pre, TypeObj post, GVNGCM gvn, Node dn ) {
+    if( dn == null ) return null; // A never-made (on this pass) type
+    Type tdn = gvn.type(dn);      // Get default type
+    if( tdn == TypeObj.UNUSED ) return TypeObj.UNUSED; // If dead, then dead
+    // Decide to take the pre-call or post-call value.
+    TypeObj to = esc_in || esc_out ? (TypeObj)post.meet(pre) : pre;
+    // After/During GCP, this is the value
+    if( gvn._opt_mode >= 2 ) return to;
+    // Before GCP, must use DefNode to keep types as strong as the Parser.
+    if( !(dn instanceof MrgProjNode) ) // Some kind of constant.
+      // TODO: Probably should just jam down mrgproj/new for these constants
+      return tdn instanceof TypeObj ? (TypeObj)tdn : tdn.oob(TypeObj.ISUSED);
+    // Else there is a New/MrgProj
+    TypeObj tdef2 = ((MrgProjNode)dn).nnn()._crushed;
+    return (TypeObj)to.join(tdef2); // Lift to the default worse-case the Parser assumed
+  }
+
 
   // Sanity check
   boolean sane_wiring() {
@@ -381,34 +394,46 @@ public final class CallEpiNode extends Node {
 
     // Update memory in the body with the not-escaped values (which had
     // bypasses the body and now flow into it).
+    Ary<Node> work = new Ary<>(new Node[1],0);
+    MProjNode emprj = (MProjNode)ProjNode.proj(this,1);
     if( mem != call.mem() ) {   // Most primitives do nothing with memory
-      Ary<Node> work = new Ary<>(new Node[1],0);
-      VBitSet bs = new VBitSet(); // Worklist for memory
       MProjNode cmprj = (MProjNode)ProjNode.proj(call,1);
-      for( Node use : cmprj._uses ) // Init worklist
-        if( use.is_mem() ) { work.push(use); bs.set(use._uid); }
-      gvn.subsume(cmprj,call.mem()); // Call->Fun memory now comes from the split
-      if( mem==cmprj ) mem = call.mem(); // The subsumed can also be the input memory
+      work.addAll(cmprj._uses);
+      gvn.subsume(cmprj,call.mem());
+      if( mem == cmprj ) mem = call.mem();
       // Update all memory ops
       while( !work.isEmpty() ) {
         Node wrk = work.pop();
-        assert wrk.is_mem();
-        Type t2 = wrk.value(gvn); // Compute a new type
-        if( t2.isa(gvn.type(wrk)) ) { // Types in alignment, no need to forward progress here
-          if( wrk instanceof CallNode ) { // Unless a Call which escape-filters; then need to check CallEpi as well
-            CallEpiNode cepi = ((CallNode)wrk).cepi();
-            if( cepi != null && !bs.tset(cepi._uid) ) work.push(cepi);
+        if( wrk.is_mem() ) {
+          Type t2 = wrk.value(gvn); // Compute a new type
+          if( !t2.isa(gvn.type(wrk)) ) { // Types out of alignment, need to forward progress here
+            // Move types 'down' and add users to worklist.
+            gvn.setype(wrk,t2); // Move 'down', wrong direction, and recognize the escaped type is alive here
+            assert !(wrk instanceof MProjNode && wrk.in(0) instanceof CallNode); // Should not push work outside the function
+            work.addAll(wrk._uses);
           }
-          continue;             // No more updates this path.
         }
-        // Move types 'down' and add users to worklist.
-        gvn.setype(wrk,t2); // Move 'down', wrong direction, and recognize the escaped type is alive here
-        for( Node use : wrk._uses ) if( use.is_mem() && !bs.tset(use._uid) ) work.push(use);
+        if( wrk instanceof CallNode ) { // Unless a Call which escape-filters; then need to check CallEpi as well
+          CallEpiNode cepi = ((CallNode)wrk).cepi();
+          if( cepi != null ) work.push(cepi);
+        }
       }
     }
-    MProjNode emprj = (MProjNode)ProjNode.proj(this,1);
-    if( emprj != null ) gvn.subsume(emprj,mem);
-    
+
+    // Sigh, ugly hack because Load/Stores are so strong.  All load/store
+    // children of the inlined call need to hit the worklist.
+    if( emprj != null ) {
+      work.addAll(emprj._uses);
+      while( !work.isEmpty() ) {
+        Node wrk = work.pop();
+        if( wrk.is_mem() ) {
+          if( wrk instanceof LoadNode ) gvn.add_work(wrk);
+          if( wrk instanceof StoreNode ) { gvn.add_work(wrk); work.addAll(wrk._uses); }
+        }
+      }
+      gvn.subsume(emprj,mem);
+    }
+
     // Move over Control
     CProjNode ccprj = (CProjNode)ProjNode.proj(call,0);
     if( ccprj != null ) gvn.subsume(ccprj,call.ctl());
@@ -431,14 +456,15 @@ public final class CallEpiNode extends Node {
       else i++;
     }
 
-    // While not strictly nessecary, immediately fold any dead paths to
+    // While not strictly necessary, immediately fold any dead paths to
     // functions to clean up the CFG.
     while( !call.is_dead() ) {
       Node proj = call._uses.at(0);
       Node parm = proj._uses.at(0);
       gvn.xform_old(parm.in(0),0);
     }
-    
+
+    assert Env.START.more_flow(gvn,new VBitSet(),true,0)==0; // Check for sanity
     return this;
   }
 
@@ -453,6 +479,7 @@ public final class CallEpiNode extends Node {
         }
       gvn.add_work_uses(fun);
     }
+    gvn.add_work(ret);
     del(_defs.find(ret));
     assert sane_wiring();
   }
@@ -482,5 +509,5 @@ public final class CallEpiNode extends Node {
   // there, transitively through memory.
   //
   // In practice, just the no-escape aliases
-  @Override IBitSet escapees(GVNGCM gvn) { return IBitSet.FULL; }
+  @Override BitsAlias escapees( GVNGCM gvn) { return BitsAlias.FULL; }
 }

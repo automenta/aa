@@ -18,13 +18,13 @@ public class ConNode<T extends Type> extends Node {
     // unknown callers.  However, we keep the ALL_CTRL for primitives so we can
     // reset the compilation state easily.
     if( gvn._opt_mode>=2 && Env.ALL_CTRL == this ) return Type.XCTRL;
-    return _t;
+    return _t.simple_ptr();
   }
   @Override public TypeMem live( GVNGCM gvn) {
     // If any use is alive, the Con is alive... but it never demands memory.
     // Indeed, it may supply memory.
     for( Node use : _uses )
-      if( use.live_use(gvn, this) != TypeMem.DEAD )
+      if( use._live != TypeMem.DEAD && use.live_use(gvn, this) != TypeMem.DEAD )
         return TypeMem.ALIVE;
     return TypeMem.DEAD;
   }

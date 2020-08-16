@@ -23,7 +23,7 @@
  */
 package com.cliffc.aa.view.layout;
 
-import jcog.tree.rtree.rect.RectFloat;
+import jcog.tree.rtree.rect.RectF;
 
 import java.util.Set;
 
@@ -35,7 +35,7 @@ public interface Cluster extends Comparable<Cluster> {
 
     Cluster getOuter();
 
-    void setBounds(RectFloat r);
+    void setBounds(RectF r);
 
     Set<? extends Cluster> getSuccessors();
 }

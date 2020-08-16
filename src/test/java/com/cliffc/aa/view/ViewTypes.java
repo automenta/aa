@@ -5,7 +5,7 @@ import jcog.data.graph.MapNodeGraph;
 import jcog.data.graph.Node;
 import spacegraph.space2d.container.graph.Graph2D;
 import spacegraph.space2d.container.graph.NodeGraphRenderer;
-import spacegraph.space2d.container.layout.ForceDirected2D;
+import spacegraph.space2d.container.layout.SemiForce2D;
 
 import java.util.BitSet;
 
@@ -20,7 +20,10 @@ public class ViewTypes {
         n.walk((parent,sub) -> g.addEdge(sub, "->", parent)); //TODO use dfs()
 
         window(new Graph2D<Node<Object, Object>>()
-                        .update(new ForceDirected2D<>())
+                        .update(
+                            //new Force2D<>()
+                            new SemiForce2D.TreeForce2D<>()
+                        )
                         .render(new NodeGraphRenderer<>())
                         .set(g)
                         .widget(),

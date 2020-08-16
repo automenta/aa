@@ -11,6 +11,7 @@ import java.util.function.Predicate;
 public final class TypeMemPtr extends Type<TypeMemPtr> {
   // List of known memory aliases.  Zero is nil.
   public BitsAlias _aliases;
+  
   // The _obj field is unused (trivially OBJ or XOBJ) for TMPs used as graph
   // node results, because memory contents are modified in TypeMems and
   // TypeObjs and NOT in pointers - hence this field "goes stale" rapidly as
@@ -45,7 +46,7 @@ public final class TypeMemPtr extends Type<TypeMemPtr> {
     if( dups.tset(_uid) ) return "$"; // Break recursive printing cycle
     if( _aliases==BitsAlias.NIL || _aliases==BitsAlias.NIL.dual() ) return "*0";
     SB sb = new SB().p('*');
-    _aliases.toString(sb); //.p(_obj.str(dups));
+    _aliases.toString(sb);
     if( _aliases.test(0) ) sb.p('?');
     return sb.toString();
   }
@@ -249,4 +250,17 @@ public final class TypeMemPtr extends Type<TypeMemPtr> {
   @SuppressWarnings("unchecked")
   @Override void walk( Predicate<Type> p ) { if( p.test(this) ) _obj.walk(p); }
   public int getbit() { return _aliases.getbit(); }
+  @Override TypeMemPtr crush_fld_impl(String fld) {
+    return make(_aliases,(TypeObj)_obj.crush_fld_impl(fld));
+  }
+  @Override public TypeMemPtr widen() {
+    // Flatten to either all-structs or all-strings, unless both.
+    boolean rec = _aliases.isa(BitsAlias.RECORD_BITS0);
+    boolean str = _aliases.isa(BitsAlias.STRBITS0);
+    BitsAlias bs = rec ? (str
+                          ? BitsAlias.FULL
+                          : BitsAlias.RECORD_BITS0)
+      : BitsAlias.STRBITS0;
+    return make(bs,(TypeObj)_obj.widen());
+  }
 }

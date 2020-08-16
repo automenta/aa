@@ -45,7 +45,7 @@ public class ScopeNode extends Node {
     set_def(1,n,gvn);
     return this;
   }
-  @Override boolean is_mem() { return true; }
+  @Override public boolean is_mem() { return true; }
 
   public Node get(String name) { return stk().get(name); }
   public boolean is_mutable(String name) { return stk().is_mutable(name); }
@@ -114,7 +114,7 @@ public class ScopeNode extends Node {
       return gvn._opt_mode < 2 ? TypeMem.ALLMEM : TypeMem.DEAD;
     assert _uses._len==0;
     // All fields in all reachable pointers from rez() will be marked live
-    return compute_live_mem(gvn,mem(),rez());
+    return compute_live_mem(gvn,mem(),rez()).flatten_fields();
   }
 
   @Override public TypeMem live_use( GVNGCM gvn, Node def ) {
@@ -192,8 +192,8 @@ public class ScopeNode extends Node {
       if( vars.isEmpty() ) return mem;
       mem.unhook();             // Passed-in 'hooked' memory
       for( String name : vars.keySet() ) {
-        String msg = bad.errMsg("'"+name+"' not defined on "+arm+" arm of trinary");
-        Node err = gvn.xform(new ErrNode(ctrl,msg,null));
+        String msg = "'"+name+"' not defined on "+arm+" arm of trinary";
+        Node err = gvn.xform(new ErrNode(ctrl,bad,msg));
         // Exactly like a parser store of an error, on the missing side
         mem = gvn.xform(new StoreNode(mem,scope.ptr(),err,TypeStruct.FFNL,name,bad));
       }

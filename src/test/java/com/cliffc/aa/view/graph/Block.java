@@ -26,7 +26,7 @@ package com.cliffc.aa.view.graph;
 
 import com.cliffc.aa.view.data.InputBlock;
 import com.cliffc.aa.view.layout.Cluster;
-import jcog.tree.rtree.rect.RectFloat;
+import jcog.tree.rtree.rect.RectF;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -38,7 +38,7 @@ import java.util.Set;
 public class Block implements Cluster {
 
     private final InputBlock inputBlock;
-    private RectFloat bounds;
+    private RectF bounds;
     private final Diagram diagram;
 
     public Block(InputBlock inputBlock, Diagram diagram) {
@@ -62,11 +62,11 @@ public class Block implements Cluster {
         return succs;
     }
 
-    public void setBounds(RectFloat r) {
+    public void setBounds(RectF r) {
         this.bounds = r;
     }
 
-    public RectFloat getBounds() {
+    public RectF getBounds() {
         return bounds;
     }
 

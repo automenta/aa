@@ -10,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 
 import java.text.NumberFormat;
 import java.text.ParsePosition;
-import java.util.BitSet;
+import java.util.*;
 
 /** an implementation of language AA
  *
@@ -117,6 +117,8 @@ public class Parse {
     remove_unknown_callers();
     _gvn.gcp(_e._scope); // Global Constant Propagation
     _gvn.iter(3);   // Re-check all ideal calls now that types have been maximally lifted
+    _gvn.gcp(_e._scope); // Global Constant Propagation
+    _gvn.iter(4);   // Re-check all ideal calls now that types have been maximally lifted
     return gather_errors();
   }
 
@@ -152,23 +154,15 @@ public class Parse {
     bs.set(Env.STK_0._uid);     // Do not walk initial memory
     bs.set(_e._scope._uid);     // Do not walk top-level scope
     bs.set(Env.DEFMEM._uid);    // Do not walk default memory
-    Ary<String> errs0 = new Ary<>(new String[1],0);
-    Ary<String> errs1 = new Ary<>(new String[1],0);
-    Ary<String> errs2 = new Ary<>(new String[1],0);
-    Ary<String> errs3 = new Ary<>(new String[1],0);
-    res   .walkerr_def(errs0,errs1,errs2,errs3,bs,_gvn);
-    ctrl().walkerr_def(errs0,errs1,errs2,errs3,bs,_gvn);
-    mem   .walkerr_def(errs0,errs1,errs2,errs3,bs,_gvn);
-    if( errs0.isEmpty() ) errs0.addAll(errs1);
-    if( errs0.isEmpty() ) errs0.addAll(errs2);
-    if( errs0.isEmpty() ) _e._scope.walkerr_use(errs0,new VBitSet(),_gvn);
-    if( errs0.isEmpty() && skipWS() != -1 ) errs0.add(errMsg("Syntax error; trailing junk"));
-    if( errs0.isEmpty() ) res.walkerr_gc(errs0,new VBitSet(),_gvn);
-    // Most errors result in unresolved calls, so report others first.
-    errs0.addAll(errs3);
-    // Do not sort the errors, because they are reported in Reverse Post-Order
-    // which means control-dependent errors are reported after earlier control
-    // errors... i.e., you get the errors in execution order.
+    HashSet<Node.ErrMsg> errs = new HashSet<>();
+    res   .walkerr_def(errs,bs,_gvn);
+    ctrl().walkerr_def(errs,bs,_gvn);
+    mem   .walkerr_def(errs,bs,_gvn);
+    if( errs.isEmpty() ) _e._scope.walkerr_use(errs,new VBitSet(),_gvn);
+    if( errs.isEmpty() && skipWS() != -1 ) errs.add(Node.ErrMsg.trailingjunk(this));
+    if( errs.isEmpty() ) res.walkerr_gc(errs,new VBitSet(),_gvn);
+    ArrayList<Node.ErrMsg> errs0 = new ArrayList<>(errs);
+    Collections.sort(errs0);
 
     kill(res);       // Kill Node for returned Type result
 
@@ -262,13 +256,13 @@ public class Parse {
       rez = _e.add_fun(bad,tvar,epi1); // Return type-name constructor
       // For Structs, add a second constructor taking an expanded arg list
       if( t instanceof TypeStruct ) {   // Add struct types with expanded arg lists
-        FunPtrNode epi2 = IntrinsicNode.convertTypeNameStruct((TypeStruct)tn, BitsAlias.RECORD, _gvn);
+        FunPtrNode epi2 = IntrinsicNode.convertTypeNameStruct((TypeStruct)tn, BitsAlias.RECORD, _gvn, errMsg());
         Node rez2 = _e.add_fun(bad,tvar,epi2); // type-name constructor with expanded arg list
-        _gvn.setype(Env.DEFMEM,Env.DEFMEM.value(_gvn));
         _gvn.init0(rez2._uses.at(0));      // Force init of Unresolved
       }
     }
     _gvn.rereg(stk,stk.value(_gvn)); // Re-install display in GVN
+    _gvn.revalive(Env.DEFMEM);       // Update DEFMEM for both functions added
     // TODO: Add reverse cast-away
     return rez;
   }
@@ -323,7 +317,7 @@ public class Parse {
       if( peek(":=") ) _x=oldx2; // Avoid confusion with typed assignment test
       else if( peek(':') && (t=type())==null ) { // Check for typed assignment
         if( _e._scope.test_if() ) _x = oldx2; // Grammar ambiguity, resolve p?a:b from a:int
-        else                      err_ctrl0("Missing type after ':'",null);
+        else                      err_ctrl0("Missing type after ':'");
       }
       if( peek(":=") ) rs.set(toks._len);              // Re-assignment parse
       else if( !peek_not('=','=') ) {                  // Not any assignment
@@ -331,6 +325,7 @@ public class Parse {
         if( lookup_current_scope_only && ts.isEmpty() && (peek(';') || peek('}') )){
           _x--;                                        // Push back statement end
           default_nil=true;                            // Shortcut def of nil
+          rs.set(toks._len);                           // Shortcut mutable
         } else {
           _x = oldx; // Unwind the token parse, and try an expression parse
           break;     // Done parsing assignment tokens
@@ -375,7 +370,7 @@ public class Parse {
         else ; // Can be here if already in-error
       } else { // Store into scope/NewObjNode/display
         // Assign into display
-        Node ptr = get_display_ptr(scope,tok); // Pointer, possibly loaded up the display-display
+        Node ptr = get_display_ptr(scope); // Pointer, possibly loaded up the display-display
         set_mem(gvn(new StoreNode(mem(),ptr,ifex,mutable,tok,badfs.at(i))));
         scope.def_if(tok,mutable,false); // Note 1-side-of-if update
       }
@@ -479,7 +474,6 @@ public class Parse {
             Node call = do_call(new CallNode(true,new Parse[]{bad,bad},ctrl(),mem(),fun.unhook(),args.in(0)));
             args.set_def(0,call,_gvn);
             funs.setX(0,null);
-            bads.setX(0,null);
           } else {
             Parse bad1 = bads.at(i-1);
             Node call = do_call(new CallNode(true,new Parse[]{bad1,bad1,bad},ctrl(),mem(),fun.unhook(),args.in(i-1),args.in(i)));
@@ -600,7 +594,7 @@ public class Parse {
           badargs[0] = errMsg(oldx-1); // Base call error reported at the opening paren
           n = do_call(new CallNode(false,badargs,ctrl(),mem(),n,arg)); // Pass the tuple
         }
-        
+
       } else {
         return n;               // Just an arg
       }
@@ -624,10 +618,10 @@ public class Parse {
     // Scope is discovered by walking lexical display stack.
     // Pointer to the proper display is found via ptr-walking live display stack.
     // Now properly load from the display
-    Node ptr = get_display_ptr(scope,tok);
+    Node ptr = get_display_ptr(scope);
     n = gvn(new LoadNode(mem(),ptr,tok,null));
     if( n.is_forward_ref() )    // Prior is actually a forward-ref
-      return err_ctrl2(forward_ref_err(((FunPtrNode)n).fun()));
+      return err_ctrl1(Node.ErrMsg.forward_ref(this,((FunPtrNode)n).fun()));
     // Do a full lookup on "+", and execute the function
     Node plus = _e.lookup_filter("+",_gvn,2);
     Node sum = do_call(new CallNode(true,errMsgs(2),ctrl(),mem(),plus,n.keep(),con(TypeInt.con(d))));
@@ -717,8 +711,8 @@ public class Parse {
     // Else must load against most recent display update.  Get the display to
     // load against.  If the scope is local, we load against it directly,
     // otherwise the display is passed in as a hidden argument.
-    Node ptr = get_display_ptr(scope,tok.intern());
-    return gvn(new LoadNode(mem(),ptr,tok,null));
+    Node ptr = get_display_ptr(scope);
+    return gvn(new LoadNode(mem(),ptr,tok.intern(),null));
   }
 
   /** Parse a tuple; first stmt but not the ',' parsed.
@@ -740,16 +734,17 @@ public class Parse {
 
     // Build the tuple from gathered args
     TypeStruct mt_tuple = TypeStruct.make(false,new String[]{"^"},TypeStruct.ts(Type.XNIL),new byte[]{TypeStruct.FFNL},true);
-    NewObjNode nn = new NewObjNode(false,BitsAlias.RECORD,mt_tuple,mem(),con(Type.XNIL));
+    NewObjNode nn = new NewObjNode(false,BitsAlias.RECORD,mt_tuple,con(Type.XNIL));
     for( int i=0; i<args._len; i++ )
       nn.create_active((""+i).intern(),args.at(i),TypeStruct.FFNL,_gvn);
     nn._fld_starts = bads.asAry();
-    nn.no_more_fields();
+    NewObjNode nnn = (NewObjNode)gvn(nn);
+    nnn.no_more_fields();
+    nnn._live = TypeMem.ESCAPE;
 
     // NewNode returns a TypeMem and a TypeMemPtr (the reference).
-    NewObjNode nnn = (NewObjNode)gvn(nn);
-    set_mem( Env.DEFMEM.make_mem_proj(_gvn,nnn) );
-    return gvn(new ProjNode(nnn,1));
+    set_mem( Env.DEFMEM.make_mem_proj(_gvn,nn,mem()) );
+    return gvn(new ProjNode(1, nn));
   }
 
   /** Parse anonymous struct; the opening "@{" already parsed.  A lexical scope
@@ -808,7 +803,7 @@ public class Parse {
         else {
           // Might be: "{ x y z:bad -> body }" which cannot be any stmt.  This
           // is an error in any case.  Treat as a bad type on a valid function.
-          err_ctrl0(peek(',') ? "Bad type arg, found a ',' did you mean to use a ';'?" : "Missing or bad type arg",null);
+          err_ctrl0(peek(',') ? "Bad type arg, found a ',' did you mean to use a ';'?" : "Missing or bad type arg");
           t = Type.SCALAR;
           skipNonWS();         // Skip possible type sig, looking for next arg
         }
@@ -961,9 +956,9 @@ public class Parse {
     }
     TypeStr ts = TypeStr.con(new String(_buf,oldx,_x-oldx-1).intern());
     // Convert to ptr-to-constant-memory-string
-    NewStrNode nnn = gvn( new NewStrNode(ts,mem(),con(ts))).keep();
-    set_mem(Env.DEFMEM.make_mem_proj(_gvn,nnn));
-    return gvn( new ProjNode(nnn.unhook(),1));
+    NewStrNode nnn = gvn( new NewStrNode(ts,con(ts))).keep();
+    set_mem(Env.DEFMEM.make_mem_proj(_gvn,nnn,mem()));
+    return gvn( new ProjNode(1, nnn.unhook()));
   }
 
   /** Parse a type or return null
@@ -1096,7 +1091,7 @@ public class Parse {
     if( peek(c) ) return;
     Parse bad = errMsg();       // Generic error
     bad._x = oldx;              // Openning point
-    err_ctrl0("Expected closing '"+c+"' but "+(_x>=_buf.length?"ran out of text":"found '"+(char)(_buf[_x])+"' instead"),bad);
+    err_ctrl3("Expected closing '"+c+"' but "+(_x>=_buf.length?"ran out of text":"found '"+(char)(_buf[_x])+"' instead"),bad);
   }
 
   // Skip WS, return true&skip if match, false & do not skip if miss.
@@ -1168,7 +1163,7 @@ public class Parse {
   // Set and return a new control
   private <N extends Node> N set_ctrl(N n) { return _e._scope.set_ctrl(n,_gvn); }
   private Node mem() { return _e._scope.mem(); }
-  private Node set_mem(Node n) { return _e._scope.set_mem(n,_gvn); }
+  private void set_mem( Node n) { _e._scope.set_mem(n, _gvn); }
 
   private @NotNull ConNode con( Type t ) { return _gvn.con(t); }
 
@@ -1181,7 +1176,7 @@ public class Parse {
 
   // Get the display pointer.  The function call
   // passed in the display as a hidden argument which we return here.
-  private Node get_display_ptr(ScopeNode scope, String tok) {
+  private Node get_display_ptr( ScopeNode scope ) {
     // Issue Loads against the Display, until we get the correct scope.  The
     // Display is a linked list of displays, and we already checked that token
     // exists at scope up in the display.
@@ -1205,13 +1200,15 @@ public class Parse {
     Node cepi = gvn(new CallEpiNode(call,Env.DEFMEM)).keep();
     set_ctrl(   gvn(new CProjNode(cepi,0)));
     set_mem (   gvn(new MProjNode(cepi,1))); // Return memory from all called functions
-    return gvn(new ProjNode(cepi.unhook(),2));
+    return gvn(new ProjNode(2, cepi.unhook()));
   }
 
   // Whack current control with a syntax error
-  private ErrNode err_ctrl2( String s ) { return init(new ErrNode(Env.START,errMsg(s),null)); }
-  private void err_ctrl0(String s, Parse bad) {
-    set_ctrl(gvn(new ErrNode(ctrl(),errMsg(s),bad)));
+  private ErrNode err_ctrl1( Node.ErrMsg msg ) { return init(new ErrNode(Env.START,msg)); }
+  private ErrNode err_ctrl2( String msg ) { return init(new ErrNode(Env.START,errMsg(),msg)); }
+  private void err_ctrl0(String s) { err_ctrl3(s,errMsg()); }
+  private void err_ctrl3(String s, Parse open) {
+    set_ctrl(gvn(new ErrNode(ctrl(),open,s)));
   }
 
   // Make a private clone just for delayed error messages
@@ -1231,41 +1228,9 @@ public class Parse {
     return n==1 ? new Parse[]{null,e,e} : new Parse[]{null,e,e,e};
   }
 
-  // Polite error message for mismatched types
-  public String typerr( Type actual, Node mem, Type expected ) {
-    Type t = mem==null ? null : _gvn.type(mem);
-    TypeMem tmem = t instanceof TypeMem ? (TypeMem)t : null;
-    String s0 = typerr(actual  ,tmem);
-    String s1 = typerr(expected,null); // Expected is already a complex ptr, does not depend on memory
-    return errMsg(s0+" is not a "+s1);
-  }
-  public String typerr( Type actual, Node mem, Type[] expecteds ) {
-    Type t = mem==null ? null : _gvn.type(mem);
-    TypeMem tmem = t instanceof TypeMem ? (TypeMem)t : null;
-    SB sb = new SB().p(typerr(actual,tmem));
-    sb.p( expecteds.length==1 ? " is not a " : " is none of (");
-    for( Type expect : expecteds ) sb.p(typerr(expect,null)).p(',');
-    sb.unchar().p(expecteds.length==1 ? "" : ")");
-    return errMsg(sb.toString());
-  }
-  private static String typerr( Type t, TypeMem tmem ) {
-    return t.is_forward_ref()
-      ? ((TypeFunPtr)t).names(false)
-      : (t instanceof TypeMemPtr
-         ? t.str(new SB(), null, tmem).toString()
-         : t.toString());
-  }
-
-  // Standard mis-use of a forward-ref error (assumed to be a forward-decl of a
-  // recursive function; all other uses are treated as an unknown-ref error).
-  public String forward_ref_err(FunNode fun) {
-    String name = fun._name;
-    return errMsg("Unknown ref '"+name+"'");
-  }
-
   // Build a string of the given message, the current line being parsed,
   // and line of the pointer to the current index.
-  public String errMsg(String s) {
+  public String errLocMsg(String s) {
     if( s.charAt(0)=='\n' ) return s;
     // find line start
     int a=_x;
@@ -1285,5 +1250,13 @@ public class Parse {
   }
   // Handy for the debugger to print
   @Override public String toString() { return new String(_buf,_x,_buf.length-_x); }
-
+  @Override public boolean equals(Object loc) {
+    if( this==loc ) return true;
+    if( !(loc instanceof Parse) ) return false;
+    Parse p = (Parse)loc;
+    return _x==p._x && _src.equals(p._src);
+  }
+  @Override public int hashCode() {
+    return _src.hashCode()+_x;
+  }
 }
