@@ -27,7 +27,7 @@ public class TypeFlt extends Type<TypeFlt> {
   private static TypeFlt FREE=null;
   @Override protected TypeFlt free( TypeFlt ret ) { FREE=this; return ret; }
   public static Type make( int x, int z, double con ) {
-    if( x==0 && (double)((long)con)==con ) return TypeInt.con((long)con);
+    if( x==0 && ((long)con) ==con ) return TypeInt.con((long)con);
     TypeFlt t1 = FREE;
     if( t1 == null ) t1 = new TypeFlt(x,z,con);
     else {  FREE = null;      t1.init(x,z,con); }
@@ -88,7 +88,7 @@ public class TypeFlt extends Type<TypeFlt> {
     return make(that.nn(),that._z,0); // No longer a constant
   }
   private int nn() { assert _x <=0; return _con!=0 || _x== -1 ? -1 : -2; }
-  static int log( double con ) { return ((double)(float)con)==con ? 32 : 64; }
+  static int log( double con ) { return (float)con ==con ? 32 : 64; }
 
   @Override public boolean above_center() { return _x>0; }
   @Override public boolean may_be_con() { return _x>=0; }

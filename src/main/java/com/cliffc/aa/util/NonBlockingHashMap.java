@@ -1,5 +1,7 @@
 package com.cliffc.aa.util;
 
+import sun.misc.Unsafe;
+
 import java.io.IOException;
 import java.io.Serializable;
 import java.lang.reflect.Field;
@@ -7,7 +9,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLongFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
-import sun.misc.Unsafe;
 
 /*
  * Written by Cliff Click and released to the public domain, as explained at
@@ -186,7 +187,7 @@ public class NonBlockingHashMap<TypeK, TypeV>
     System.out.println("=========");
   }
   // print the entire state of the table
-  private final void print( Object[] kvs ) {
+  private static void print(Object[] kvs) {
     for( int i=0; i<len(kvs); i++ ) {
       Object K = key(kvs,i);
       if( K != null ) {
@@ -205,8 +206,9 @@ public class NonBlockingHashMap<TypeK, TypeV>
     }
   }
   // print only the live values, broken down by the table they are in
-  private final void print2( Object[] kvs) {
-    for( int i=0; i<len(kvs); i++ ) {
+  private static void print2(Object[] kvs) {
+    final int l = len(kvs);
+    for(int i = 0; i< l; i++ ) {
       Object key = key(kvs,i);
       Object val = val(kvs,i);
       Object U = Prime.unbox(val);
@@ -475,7 +477,8 @@ public class NonBlockingHashMap<TypeK, TypeV>
   @SuppressWarnings("unchecked")
   public TypeK getKey() { return (TypeK)_getKey(_kvs); }
   private static Object _getKey(Object[] kvs) {
-    for( int i=0; i<len(kvs); i++ ) {
+    final int l = len(kvs);
+    for(int i = 0; i< l; i++ ) {
       Object key = key(kvs,i);
       Object val = val(kvs,i);
       Object U = Prime.unbox(val);
@@ -824,7 +827,7 @@ public class NonBlockingHashMap<TypeK, TypeV>
     // to get the required memory orderings.  It monotonically transits from
     // null to set (once).
     volatile Object[] _newkvs;
-    private final AtomicReferenceFieldUpdater<CHM,Object[]> _newkvsUpdater =
+    private static final AtomicReferenceFieldUpdater<CHM,Object[]> _newkvsUpdater =
       AtomicReferenceFieldUpdater.newUpdater(CHM.class,Object[].class, "_newkvs");
     // Set the _next field if we can.
     boolean CAS_newkvs( Object[] newkvs ) {
@@ -1115,7 +1118,7 @@ public class NonBlockingHashMap<TypeK, TypeV>
     // not-null must have been from a copy_slot (or other old-table overwrite)
     // and not from a thread directly writing in the new table.  Thus we can
     // count null-to-not-null transitions in the new table.
-    private boolean copy_slot( NonBlockingHashMap topmap, int idx, Object[] oldkvs, Object[] newkvs ) {
+    private static boolean copy_slot(NonBlockingHashMap topmap, int idx, Object[] oldkvs, Object[] newkvs) {
       // Blindly set the key slot from null to TOMBSTONE, to eagerly stop
       // fresh put's from inserting new values in the old table when the old
       // table is mid-resize.  We don't need to act on the results here,
@@ -1214,7 +1217,8 @@ public class NonBlockingHashMap<TypeK, TypeV>
       _nextV = null;            // We have no more next-key
       // Attempt to set <_nextK,_nextV> to the next K,V pair.
       // _nextV is the trigger: stop searching when it is != null
-      while( _idx<length() ) {  // Scan array
+      int l = length();
+      while( _idx < l ) {  // Scan array
         _nextK = key(_idx++); // Get a key that definitely is in the set (for the moment!)
         if( _nextK != null && // Found something?
             _nextK != TOMBSTONE &&
@@ -1255,11 +1259,26 @@ public class NonBlockingHashMap<TypeK, TypeV>
    *  to construction. */
   @Override
   public Collection<TypeV> values() {
-    return new AbstractCollection<TypeV>() {
-      @Override public void    clear   (          ) {        NonBlockingHashMap.this.clear        ( ); }
-      @Override public int     size    (          ) { return NonBlockingHashMap.this.size         ( ); }
-      @Override public boolean contains( Object v ) { return NonBlockingHashMap.this.containsValue(v); }
-      @Override public Iterator<TypeV> iterator()   { return new SnapshotV(); }
+    return new AbstractCollection<>() {
+      @Override
+      public void clear() {
+        NonBlockingHashMap.this.clear();
+      }
+
+      @Override
+      public int size() {
+        return NonBlockingHashMap.this.size();
+      }
+
+      @Override
+      public boolean contains(Object v) {
+        return NonBlockingHashMap.this.containsValue(v);
+      }
+
+      @Override
+      public Iterator<TypeV> iterator() {
+        return new SnapshotV();
+      }
     };
   }
 
@@ -1295,12 +1314,31 @@ public class NonBlockingHashMap<TypeK, TypeV>
    *  to construction.  */
   @Override
   public Set<TypeK> keySet() {
-    return new AbstractSet<TypeK> () {
-      @Override public void    clear   (          ) {        NonBlockingHashMap.this.clear   ( ); }
-      @Override public int     size    (          ) { return NonBlockingHashMap.this.size    ( ); }
-      @Override public boolean contains( Object k ) { return NonBlockingHashMap.this.containsKey(k); }
-      @Override public boolean remove  ( Object k ) { return NonBlockingHashMap.this.remove  (k) != null; }
-      @Override public Iterator<TypeK> iterator()   { return new SnapshotK(); }
+    return new AbstractSet<>() {
+      @Override
+      public void clear() {
+        NonBlockingHashMap.this.clear();
+      }
+
+      @Override
+      public int size() {
+        return NonBlockingHashMap.this.size();
+      }
+
+      @Override
+      public boolean contains(Object k) {
+        return NonBlockingHashMap.this.containsKey(k);
+      }
+
+      @Override
+      public boolean remove(Object k) {
+        return NonBlockingHashMap.this.remove(k) != null;
+      }
+
+      @Override
+      public Iterator<TypeK> iterator() {
+        return new SnapshotK();
+      }
     };
   }
 
@@ -1348,21 +1386,36 @@ public class NonBlockingHashMap<TypeK, TypeV>
    */
   @Override
   public Set<Map.Entry<TypeK,TypeV>> entrySet() {
-    return new AbstractSet<Map.Entry<TypeK,TypeV>>() {
-      @Override public void    clear   (          ) {        NonBlockingHashMap.this.clear( ); }
-      @Override public int     size    (          ) { return NonBlockingHashMap.this.size ( ); }
-      @Override public boolean remove( final Object o ) {
-        if( !(o instanceof Map.Entry)) return false;
-        final Map.Entry<?,?> e = (Map.Entry<?,?>)o;
+    return new AbstractSet<>() {
+      @Override
+      public void clear() {
+        NonBlockingHashMap.this.clear();
+      }
+
+      @Override
+      public int size() {
+        return NonBlockingHashMap.this.size();
+      }
+
+      @Override
+      public boolean remove(final Object o) {
+        if (!(o instanceof Map.Entry)) return false;
+        final Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
         return NonBlockingHashMap.this.remove(e.getKey(), e.getValue());
       }
-      @Override public boolean contains(final Object o) {
-        if( !(o instanceof Map.Entry)) return false;
-        final Map.Entry<?,?> e = (Map.Entry<?,?>)o;
+
+      @Override
+      public boolean contains(final Object o) {
+        if (!(o instanceof Map.Entry)) return false;
+        final Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
         TypeV v = get(e.getKey());
         return v.equals(e.getValue());
       }
-      @Override public Iterator<Map.Entry<TypeK,TypeV>> iterator() { return new SnapshotE(); }
+
+      @Override
+      public Iterator<Map.Entry<TypeK, TypeV>> iterator() {
+        return new SnapshotE();
+      }
     };
   }
 

@@ -645,6 +645,7 @@ public abstract class Node implements Cloneable {
       return _loc==null ? _msg : _loc.errLocMsg(_msg);
     }
     @Override public int compareTo(ErrMsg msg) {
+      if (this == msg) return 0;
       int cmp = _lvl.compareTo(msg._lvl);
       if( cmp != 0 ) return cmp;
       cmp = _loc.compareTo(msg._loc);

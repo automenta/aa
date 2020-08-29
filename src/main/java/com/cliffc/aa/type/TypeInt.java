@@ -136,7 +136,7 @@ public class TypeInt extends Type<TypeInt> {
         return TypeFlt.make(_con==0 || tf._con==0 ? -2 : -1,Math.max(TypeFlt.log(_con),tf._z),0);
       }
       // tf._x > 0 // Can a high float fall to the int constant?
-      double dcon = tf._z==32 ? (float)_con : (double)_con;
+      double dcon = tf._z==32 ? (float)_con : _con;
       if( (long)dcon == _con && (_con!=0 || tf._x == 2) )
         return this;
       tx = _con==0 ? -2 : -1; // Fall from constant

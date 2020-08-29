@@ -303,7 +303,8 @@ public class Type<T extends Type<T>> implements Cloneable {
   private static final Type XNREAL = make(TXNREAL );
 
   // Collection of sample types for checking type lattice properties.
-  private static final Type[] TYPES = new Type[]{ALL,ANY,CTRL,XCTRL,SCALAR,XSCALAR,NSCALR,XNSCALR,NUM,XNUM,NNUM,XNNUM,REAL,XREAL,NREAL,XNREAL};
+  private static final Type[] TYPES = new Type[]{
+          ALL, ANY, CTRL, XCTRL, SCALAR, XSCALAR, NSCALR, XNSCALR, NUM, XNUM, NNUM, XNNUM, REAL, XREAL, NREAL, XNREAL};
 
   // The complete list of primitive types that are disjoint and also is-a
   // SCALAR; nothing else is a SCALAR except what is on this list (or
@@ -341,7 +342,11 @@ public class Type<T extends Type<T>> implements Cloneable {
     Key(Type a, Type b) { _a=a; _b=b; }
     Type _a, _b;
     @Override public int hashCode() { return (_a._hash<<17)|(_a._hash>>15)|_b._hash; }
-    @Override public boolean equals(Object o) { return _a==((Key)o)._a && _b==((Key)o)._b; }
+    @Override public boolean equals(Object o) {
+      if (this == o)
+        return true;
+      return _a==((Key)o)._a && _b==((Key)o)._b;
+    }
     static Type get(Type a, Type b) {
       K._a=a;
       K._b=b;

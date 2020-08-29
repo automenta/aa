@@ -1,9 +1,9 @@
 package com.cliffc.aa.util;
 
-import java.io.Serializable;
-import java.util.concurrent.atomic.AtomicReferenceFieldUpdater; 
-
 import sun.misc.Unsafe;
+
+import java.io.Serializable;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
 /**
  * An auto-resizing table of {@code longs}, supporting low-contention CAS
@@ -83,7 +83,7 @@ public class ConcurrentAutoTable implements Serializable {
 
   // The underlying array of concurrently updated long counters
   private volatile CAT _cat = new CAT(null,16/*Start Small, Think Big!*/,0L);
-  private static AtomicReferenceFieldUpdater<ConcurrentAutoTable,CAT> _catUpdater =
+  private static final AtomicReferenceFieldUpdater<ConcurrentAutoTable,CAT> _catUpdater =
     AtomicReferenceFieldUpdater.newUpdater(ConcurrentAutoTable.class,CAT.class, "_cat");
   private boolean CAS_cat( CAT oldcat, CAT newcat ) { return _catUpdater.compareAndSet(this,oldcat,newcat); }
 

@@ -15,12 +15,11 @@ public abstract class MemPrimNode extends PrimNode {
   @Override public String xstr() { return _name+(bal_close()==null?"":bal_close()); }
 
   @Override public ErrMsg err(boolean fast) {
-    Type tmem = mem()._val;
-    Type tadr = adr()._val;
+    Type tmem = mem()._val; if( tmem==Type.ALL || tmem==Type.ANY ) return null; // An error, reported earlier
+    Type tadr = adr()._val; if( tadr==Type.ALL || tadr==Type.ANY ) return null; // An error, reported earlier
     Type tidx = _defs._len <= 3 ? Type.XNIL : idx()._val;
-    if( tmem==Type.ALL || tmem==Type.ANY ) return null; // An error, reported earlier
-    if( tadr==Type.ALL || tadr==Type.ANY ) return null; // An error, reported earlier
     if( tidx==Type.ALL || tidx==Type.ANY ) return null; // An error, reported earlier
+
     if( tadr.must_nil() ) return fast ? ErrMsg.FAST : ErrMsg.niladr(_badargs[0],"Array might be nil when reading",null);
     if( !(tadr instanceof TypeMemPtr) )
       throw com.cliffc.aa.AA.unimpl();
@@ -66,10 +65,10 @@ public abstract class MemPrimNode extends PrimNode {
     @Override public TypeMem live_use(GVNGCM.Mode opt_mode, Node def ) {
       if( def==adr() ) return TypeMem.ALIVE;
       if( _defs._len>3 && def==idx() ) return TypeMem.ALIVE;
-      Type tmem = mem()._val;
-      Type tptr = adr()._val;
-      if( !(tmem instanceof TypeMem   ) ) return tmem.oob(TypeMem.ALLMEM); // Not a memory?
-      if( !(tptr instanceof TypeMemPtr) ) return tptr.oob(TypeMem.ALLMEM); // Not a pointer?
+
+      Type tmem = mem()._val; if( !(tmem instanceof TypeMem   ) ) return tmem.oob(TypeMem.ALLMEM); // Not a memory?
+      Type tptr = adr()._val; if( !(tptr instanceof TypeMemPtr) ) return tptr.oob(TypeMem.ALLMEM); // Not a pointer?
+
       return ((TypeMem)tmem).remove_no_escapes(((TypeMemPtr)tptr)._aliases);
     }
 
@@ -82,10 +81,9 @@ public abstract class MemPrimNode extends PrimNode {
     @Override public byte op_prec() { return 9; } // Max precidence
     @Override public Node ideal(GVNGCM gvn, int level) { return null; }
     @Override public Type value(GVNGCM.Mode opt_mode) {
-      Type mem = val(1);
-      Type adr = val(2);
-      if( !(mem  instanceof TypeMem  ) ) return mem .oob();
-      if( !(adr instanceof TypeMemPtr) ) return adr.oob();
+      Type mem = val(1); if( !(mem  instanceof TypeMem  ) ) return mem .oob();
+      Type adr = val(2); if( !(adr instanceof TypeMemPtr) ) return adr.oob();
+
       TypeMemPtr ptr = (TypeMemPtr)mem.sharptr(adr);
       if( !(ptr._obj instanceof TypeAry) ) return adr.oob();
       TypeAry ary = (TypeAry)ptr._obj;
@@ -101,12 +99,10 @@ public abstract class MemPrimNode extends PrimNode {
     @Override public byte op_prec() { return 0; } // Balanced op
     @Override public Node ideal(GVNGCM gvn, int level) { return null; }
     @Override public Type value(GVNGCM.Mode opt_mode) {
-      Type mem = val(1);
-      Type adr = val(2);
-      Type idx = val(3);
-      if( !(mem  instanceof TypeMem  ) ) return mem .oob();
-      if( !(adr instanceof TypeMemPtr) ) return adr.oob();
-      if( !(idx instanceof TypeInt) && idx != Type.XNIL ) return idx.oob();
+      Type mem = val(1); if( !(mem  instanceof TypeMem  ) ) return mem .oob();
+      Type adr = val(2); if( !(adr instanceof TypeMemPtr) ) return adr.oob();
+      Type idx = val(3); if( !(idx instanceof TypeInt) && idx != Type.XNIL ) return idx.oob();
+
       TypeMemPtr ptr = (TypeMemPtr)mem.sharptr(adr);
       TypeInt idx2 = idx==Type.XNIL ? TypeInt.ZERO : (TypeInt)idx;
       if( !(ptr._obj instanceof TypeAry) ) return adr.oob();
@@ -142,6 +138,7 @@ public abstract class MemPrimNode extends PrimNode {
       if( def==adr() ) return TypeMem.ALIVE; // Basic aliveness
       if( def==idx() ) return TypeMem.ALIVE ;// Basic aliveness
       if( def==val() ) return TypeMem.ESCAPE;// Value escapes
+
       throw com.cliffc.aa.AA.unimpl();       // Should not reach here
     }
   }
@@ -153,14 +150,11 @@ public abstract class MemPrimNode extends PrimNode {
     @Override public byte op_prec() { return 0; }
     @Override public Node ideal(GVNGCM gvn, int level) { return null; }
     @Override public Type value(GVNGCM.Mode opt_mode) {
-      Type mem = val(1);
-      Type ary = val(2);
-      Type idx = val(3);
-      Type val = val(4);
-      if( !(mem instanceof TypeMem   ) ) return mem.oob();
-      if( !(ary instanceof TypeMemPtr) ) return ary.oob();
-      if( !(idx instanceof TypeInt) && idx!=Type.XNIL ) return idx.oob();
-      if( !val.isa(Type.SCALAR) ) return val.oob();
+      Type mem = val(1); if( !(mem instanceof TypeMem   ) ) return mem.oob();
+      Type ary = val(2); if( !(ary instanceof TypeMemPtr) ) return ary.oob();
+      Type idx = val(3); if( !(idx instanceof TypeInt) && idx!=Type.XNIL ) return idx.oob();
+      Type val = val(4); if( !val.isa(Type.SCALAR) ) return val.oob();
+
       TypeMem    tmem = (TypeMem   )mem;
       TypeMemPtr tary = (TypeMemPtr)ary;
       TypeInt    tidx = idx==Type.XNIL ? TypeInt.ZERO : (TypeInt)idx;

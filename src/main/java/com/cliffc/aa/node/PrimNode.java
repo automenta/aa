@@ -172,7 +172,7 @@ public abstract class PrimNode extends Node {
 
   static class ConvertInt64F64 extends PrimNode {
     ConvertInt64F64() { super("flt64",TypeStruct.INT64,TypeFlt.FLT64); }
-    @Override public Type apply( Type[] args ) { return TypeFlt.con((double)args[1].getl()); }
+    @Override public Type apply( Type[] args ) { return TypeFlt.con(args[1].getl()); }
   }
 
   // TODO: Type-check strptr input args

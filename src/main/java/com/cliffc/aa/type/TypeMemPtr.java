@@ -4,6 +4,7 @@ import com.cliffc.aa.util.Ary;
 import com.cliffc.aa.util.SB;
 import com.cliffc.aa.util.VBitSet;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.function.Predicate;
 
 // Pointers-to-memory; these can be both the address and the value part of
@@ -234,9 +235,9 @@ public final class TypeMemPtr extends Type<TypeMemPtr> {
   // Max depth of struct, with a matching alias TMP
   static int max(int alias, HashMap<Type,Integer> ds) {
     int max = -1;
-    for( Type t : ds.keySet() )
-      if( (t instanceof TypeMemPtr) && ((TypeMemPtr)t)._aliases.test(alias) )
-        max = Math.max(max,ds.get(t));
+    for(Map.Entry<Type, Integer> entry : ds.entrySet())
+      if( (entry.getKey() instanceof TypeMemPtr) && ((TypeMemPtr) entry.getKey())._aliases.test(alias) )
+        max = Math.max(max, entry.getValue());
     return max+1;               // Struct is 1 more depth than TMP
   }
 

@@ -502,11 +502,13 @@ public abstract class Bits<B extends Bits<B>> implements Iterable<Integer> {
   private class Iter implements Iterator<Integer> {
     int _i=-1;
     @Override public boolean hasNext() {
-      if( _bits==null )
+      final long[] b = _bits;
+      if( b ==null )
         if( _i==-1 ) { _i=0; return true; } else return false;
       int idx;
-      while( (idx=idx(++_i)) < _bits.length )
-        if( (_bits[idx]&mask(_i)) != 0 )
+      int l = b.length;
+      while( (idx=idx(++_i)) < l )
+        if( (b[idx]&mask(_i)) != 0 )
           return true;
       return false;
     }

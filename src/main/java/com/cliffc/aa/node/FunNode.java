@@ -623,10 +623,10 @@ public class FunNode extends RegionNode {
 
     // Fill in edges.  New Nodes point to New instead of Old; everybody
     // shares old nodes not in the function (and not cloned).
-    for( Node n : map.keySet() ) {
-      Node c = map.get(n);
+    for(Map.Entry<Node, Node> entry : map.entrySet()) {
+      Node c = entry.getValue();
       assert c._defs._len==0;
-      for( Node def : n._defs ) {
+      for( Node def : entry.getKey()._defs ) {
         Node newdef = map.get(def);// Map old to new
         c.add_def(newdef==null ? def : newdef);
       }

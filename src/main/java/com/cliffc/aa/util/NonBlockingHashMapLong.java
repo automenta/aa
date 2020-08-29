@@ -1061,11 +1061,22 @@ public class NonBlockingHashMapLong<TypeV>
    *  and may (but is not guaranteed to) reflect any modifications subsequent
    *  to construction. */
   public Collection<TypeV> values() {
-    return new AbstractCollection<TypeV>() {
-      public void    clear   (          ) {        NonBlockingHashMapLong.this.clear   ( ); }
-      public int     size    (          ) { return NonBlockingHashMapLong.this.size    ( ); }
-      public boolean contains( Object v ) { return NonBlockingHashMapLong.this.containsValue(v); }
-      public Iterator<TypeV> iterator()   { return new SnapshotV(); }
+    return new AbstractCollection<>() {
+      public void clear() {
+        NonBlockingHashMapLong.this.clear();
+      }
+
+      public int size() {
+        return NonBlockingHashMapLong.this.size();
+      }
+
+      public boolean contains(Object v) {
+        return NonBlockingHashMapLong.this.containsValue(v);
+      }
+
+      public Iterator<TypeV> iterator() {
+        return new SnapshotV();
+      }
     };
   }
 
@@ -1111,12 +1122,26 @@ public class NonBlockingHashMapLong<TypeV>
    *  and may (but is not guaranteed to) reflect any modifications subsequent
    *  to construction.  */
   public Set<Long> keySet() {
-    return new AbstractSet<Long> () {
-      public void    clear   (          ) {        NonBlockingHashMapLong.this.clear   ( ); }
-      public int     size    (          ) { return NonBlockingHashMapLong.this.size    ( ); }
-      public boolean contains( Object k ) { return NonBlockingHashMapLong.this.containsKey(k); }
-      public boolean remove  ( Object k ) { return NonBlockingHashMapLong.this.remove  (k) != null; }
-      public IteratorLong iterator()    { return new IteratorLong(); }
+    return new AbstractSet<>() {
+      public void clear() {
+        NonBlockingHashMapLong.this.clear();
+      }
+
+      public int size() {
+        return NonBlockingHashMapLong.this.size();
+      }
+
+      public boolean contains(Object k) {
+        return NonBlockingHashMapLong.this.containsKey(k);
+      }
+
+      public boolean remove(Object k) {
+        return NonBlockingHashMapLong.this.remove(k) != null;
+      }
+
+      public IteratorLong iterator() {
+        return new IteratorLong();
+      }
     };
   }
 
@@ -1173,21 +1198,31 @@ public class NonBlockingHashMapLong<TypeV>
    *  this version requires <strong>auto-boxing</strong> the keys.
    */
   public Set<Map.Entry<Long,TypeV>> entrySet() {
-    return new AbstractSet<Map.Entry<Long,TypeV>>() {
-      public void    clear   (          ) {        NonBlockingHashMapLong.this.clear( ); }
-      public int     size    (          ) { return NonBlockingHashMapLong.this.size ( ); }
-      public boolean remove( final Object o ) {
+    return new AbstractSet<>() {
+      public void clear() {
+        NonBlockingHashMapLong.this.clear();
+      }
+
+      public int size() {
+        return NonBlockingHashMapLong.this.size();
+      }
+
+      public boolean remove(final Object o) {
         if (!(o instanceof Map.Entry)) return false;
-        final Map.Entry<?,?> e = (Map.Entry<?,?>)o;
+        final Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
         return NonBlockingHashMapLong.this.remove(e.getKey(), e.getValue());
       }
+
       public boolean contains(final Object o) {
         if (!(o instanceof Map.Entry)) return false;
-        final Map.Entry<?,?> e = (Map.Entry<?,?>)o;
+        final Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
         TypeV v = get(e.getKey());
         return v != null && v.equals(e.getValue());
       }
-      public Iterator<Map.Entry<Long,TypeV>> iterator() { return new SnapshotE(); }
+
+      public Iterator<Map.Entry<Long, TypeV>> iterator() {
+        return new SnapshotE();
+      }
     };
   }
 

@@ -186,8 +186,8 @@ public class LoadNode extends Node {
   @Override public TypeMem live_use(GVNGCM.Mode opt_mode, Node def ) {
     if( def==adr() ) return TypeMem.ALIVE;
     Type tmem = mem()._val;
-    Type tptr = adr()._val;
     if( !(tmem instanceof TypeMem   ) ) return tmem.oob(TypeMem.ALLMEM); // Not a memory?
+    Type tptr = adr()._val;
     if( !(tptr instanceof TypeMemPtr) ) return tptr.oob(TypeMem.ALLMEM); // Not a pointer?
     if( tptr.above_center() ) return TypeMem.ANYMEM; // Loaded from nothing
     return ((TypeMem)tmem).remove_no_escapes(((TypeMemPtr)tptr)._aliases);

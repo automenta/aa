@@ -36,7 +36,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   // Fields are named in-order and aligned with the Tuple values.  Field names
   // are never null, and never zero-length.  If the 1st char is a '*' the field
   // is Top; a '.' is Bot; all other values are valid field names.
-  public @NotNull String @NotNull[] _flds;  // The field names
+  public @NotNull String[] _flds;  // The field names
   public Type[] _ts;                        // Matching field types
   private byte[] _flags; // Field mod types; see fmeet, fdual, fstr.
   public boolean _open;  // Fields after _ts.length are treated as ALL (or ANY)
@@ -68,6 +68,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   // Returns 1 for definitely equals, 0 for definitely unequals, and -1 if
   // needing the cyclic test.
   private int cmp( TypeStruct t ) {
+    if (this == t) return 1;
     if( !super.equals(t) ) return 0;
     if( _ts.length != t._ts.length || _open != t._open ) return 0;
     if( _ts == t._ts && _flds == t._flds && _flags == t._flags ) return 1;
@@ -114,11 +115,13 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     return eq;
   }
   private boolean cycle_equals0( TypeStruct t ) {
-    for( int i=0; i<_ts.length; i++ )
-      if( _ts[i]!=t._ts[i] &&   // Normally suffices to test ptr-equals only
-          (_ts[i]==null || t._ts[i]==null || // Happens when asserting on partially-built cyclic types
-           !_ts[i].cycle_equals(t._ts[i])) ) // Must do a full cycle-check
+    final Type[] x = _ts, y = t._ts;
+    for(int i = 0; i< x.length; i++ ) {
+      if( x[i]!= y[i] &&   // Normally suffices to test ptr-equals only
+          (x[i]==null || y[i]==null || // Happens when asserting on partially-built cyclic types
+           !x[i].cycle_equals(y[i])) ) // Must do a full cycle-check
         return false;
+    }
     return true;
   }
 
