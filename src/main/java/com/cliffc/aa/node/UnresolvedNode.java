@@ -38,18 +38,18 @@ public class UnresolvedNode extends Node {
     return progress ? this : null;
   }
 
-  @Override public Type value(GVNGCM gvn) {
+  @Override public Type value(GVNGCM.Mode opt_mode) {
     // Freeze after GVN - only still around for errors
-    if( gvn._opt_mode > 2 ) return gvn.self_type(this);
+    if( opt_mode == GVNGCM.Mode.PesiCG ) return _val;
     // If any arg is ALL - that wins; if ANY - ignored.
     // If any arg is not a TFP, then OOB.
     // If any arg is high, ignore - FunPtrs always fall.
     // If opt_mode==2, then high else low
-    boolean lifting = gvn._opt_mode!=2;
+    boolean lifting = opt_mode!=GVNGCM.Mode.Opto;
     Type initial = lifting ? Type.ANY : Type.ALL;
     Type t = initial;
     for( Node def : _defs ) {
-      Type td = gvn.type(def);
+      Type td = def._val;
       if( td==Type.ANY )        // Some arg is at high?
         if( lifting ) continue; // Lifting: ignore it
         else return Type.ANY;   // Falling: wait till it falls.
@@ -90,15 +90,15 @@ public class UnresolvedNode extends Node {
   // Compute local contribution of use liveness to this def.
   // If pre-GCP, same as value() above, use the conservative answer.
   // During GCP, this will resolve so use the optimistic answer.
-  @Override public TypeMem live_use( GVNGCM gvn, Node def ) {
-    if( gvn._opt_mode < 2 ) return super.live_use(gvn,def);
+  @Override public TypeMem live_use(GVNGCM.Mode opt_mode, Node def ) {
+    if( !opt_mode._CG ) return super.live_use(opt_mode,def);
     if( !(def instanceof FunPtrNode) ) return _live;
     // If any Call has resolved to this def, its alive.
     // If not a Call, must assume it props to some unknown Call and is alive.
     int dfidx = ((FunPtrNode)def).ret()._fidx;
     for( Node call : _uses )
       if( !(call instanceof CallNode) ||
-          ((CallNode)call).live_use_call(gvn,dfidx) != TypeMem.DEAD )
+          ((CallNode)call).live_use_call(dfidx) != TypeMem.DEAD )
         return _live;
     // Only call users, and no call wants this def.
     return TypeMem.DEAD;
@@ -127,8 +127,7 @@ public class UnresolvedNode extends Node {
   public UnresolvedNode copy(Parse bad) {
     return new UnresolvedNode(bad,Arrays.copyOf(_defs._es,_defs._len));
   }
-  // Do not walk into the unresolved calls; there is only an error if a Call uses an Unresolved.
-  @Override boolean is_uncalled(GVNGCM gvn) { return true; }
+
   // Choice of typically primitives, all of which are pure.
   // Instead of returning the pre-call memory on true, returns self.
   @Override Node is_pure_call() {

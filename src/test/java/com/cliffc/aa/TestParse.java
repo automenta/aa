@@ -2,7 +2,6 @@ package com.cliffc.aa;
 
 import com.cliffc.aa.type.*;
 import com.cliffc.aa.util.SB;
-import org.junit.Ignore;
 import org.junit.Test;
 
 import java.util.function.Function;
@@ -11,11 +10,14 @@ import static org.junit.Assert.*;
 
 public class TestParse {
   private static final String[] FLDS = new String[]{"^","n","v"};
+  private static final BitsFun TEST_FUNBITS = BitsFun.make0(39);
 
   // temp/junk holder for "instant" junits, when debugged moved into other tests
   @Test public void testParse() {
     TypeStruct dummy = TypeStruct.DISPLAY;
     TypeMemPtr tdisp = TypeMemPtr.make(BitsAlias.make0(2),TypeStr.NO_DISP);
+    final String FORELSE2="for={pred->{body->!pred()?^;(tmp=body())?^tmp; for pred body}};";
+    test(FORELSE2+"i:=0; for {i++ < 100} {i==50?i}",TypeInt.INT64); // Early exit on condition i==50
 
     // A collection of tests which like to fail easily
     test("-1",  TypeInt.con( -1));
@@ -25,11 +27,11 @@ public class TestParse {
     test("math_rand(1)?x=4:x=3;x", TypeInt.NINT8); // x defined on both arms, so available after
     test_ptr("x=@{n:=1;v:=2}; x.n := 3; x", "@{n:=3;v:=2}");
     test("x=3; mul2={x -> x*2}; mul2(2.1)", TypeFlt.con(2.1*2.0)); // must inline to resolve overload {*}:Flt with I->F conversion
-    testerr("sq={x -> x*x}; sq(\"abc\")", "*[$]\"abc\" is not a flt64",9);
+    testerr("sq={x -> x*x}; sq(\"abc\")", "Unable to resolve call",10);
     test("fun:{int str -> int}={x y -> x+2}; fun(2,3)", TypeInt.con(4));
     testerr("math_rand(1)?x=2: 3 ;y=x+2;y", "'x' not defined on false arm of trinary",20);
     testerr("{+}(1,2,3)", "Passing 3 arguments to {+} which takes 2 arguments",3);
-    test_isa("{x y -> x+y}", TypeFunPtr.make(BitsFun.make0(35),3,tdisp)); // {Scalar Scalar -> Scalar}
+    test_isa("{x y -> x+y}", TypeFunPtr.make(TEST_FUNBITS,3,tdisp)); // {Scalar Scalar -> Scalar}
     testerr("dist={p->p.x*p.x+p.y*p.y}; dist(@{x=1})", "Unknown field '.y'",19);
     testerr("Point=:@{x;y}; Point((0,1))", "*[$](~nil;1) is not a *[$]Point:@{x:=;y:=;...}",21);
     test("x=@{a:=1;b= {a=a+1;b=0}}; x.b(); x.a",TypeInt.con(2));
@@ -49,7 +51,7 @@ public class TestParse {
     test("1",   TypeInt.TRUE);
     // Unary operator
     test("-1",  TypeInt.con( -1));
-    test("!1",  TypeInt.con(  0));
+    test("!1",  Type.XNIL);
     // Binary operators
     test("1+2", TypeInt.con(  3));
     test("1-2", TypeInt.con( -1));
@@ -88,8 +90,9 @@ public class TestParse {
     test("math_pi", TypeFlt.PI);
     // bare function lookup; returns a union of '+' functions
     testerr("+", "Syntax error; trailing junk",0);
+    testerr("!", "Syntax error; trailing junk",0);
     test_prim("{+}", "+");
-    test_prim("!", "!"); // uniops are just like normal functions
+    test_prim("{!}", "!"); // uniops are just like normal functions
     // Function application, traditional paren/comma args
     test("{+}(1,2)", TypeInt.con( 3));
     test("{-}(1,2)", TypeInt.con(-1)); // binary version
@@ -108,6 +111,13 @@ public class TestParse {
     test("(1;2;)", TypeInt.con(2)); // final semicolon is optional
     test("{+}(1;2 ,3)", TypeInt.con(5)); // statements in arguments
     test("{+}(1;2;,3)", TypeInt.con(5)); // statements in arguments
+    // Operators squished together
+    test("-1== -1",  TypeInt.TRUE);
+    test("0== !!1",  TypeInt.FALSE);
+    test("2==-1",    TypeInt.FALSE);
+    test("-1== --1", TypeInt.FALSE);
+    test("-1== ---1",TypeInt.TRUE);
+    testerr("-1== --", "Missing term after '=='",5);
   }
 
   @Test public void testParse01() {
@@ -157,11 +167,11 @@ public class TestParse {
     // Since call not-taken, post GCP Parms not loaded from _tf, limited to ~Scalar.  The
     // hidden internal call from {&} to the primitive is never inlined (has ~Scalar args)
     // so 'x&1' never sees the TypeInt return from primitive AND.
-    TypeMemPtr tdisp = TypeMemPtr.make(BitsAlias.make0(10),TypeStr.NO_DISP);
-    test_isa("{x -> x&1}", TypeFunPtr.make(BitsFun.make0(35),2,tdisp)); // {Int -> Int}
+    TypeMemPtr tdisp = TypeMemPtr.make(BitsAlias.make0(12),TypeStr.NO_DISP);
+    test_isa("{x -> x&1}", TypeFunPtr.make(TEST_FUNBITS,2,tdisp)); // {Int -> Int}
 
     // Anonymous function definition
-    test_isa("{x y -> x+y}", TypeFunPtr.make(BitsFun.make0(35),3,tdisp)); // {Scalar Scalar -> Scalar}
+    test_isa("{x y -> x+y}", TypeFunPtr.make(TEST_FUNBITS,3,tdisp)); // {Scalar Scalar -> Scalar}
 
     // ID in different contexts; in general requires a new TypeVar per use; for
     // such a small function it is always inlined completely, has the same effect.
@@ -184,7 +194,7 @@ public class TestParse {
     test("x=3; mul2={x -> x*2}; mul2(2.1)+mul2(x)", TypeFlt.con(2.1*2.0+3*2)); // Mix of types to mul2(), mix of {*} operators
     test("sq={x -> x*x}; sq 2.1", TypeFlt.con(4.41)); // No () required for single args
     testerr("sq={x -> x&x}; sq(\"abc\")", "*[$]\"abc\" is not a int64",9);
-    testerr("sq={x -> x*x}; sq(\"abc\")", "*[$]\"abc\" is not a flt64",9);
+    testerr("sq={x -> x*x}; sq(\"abc\")", "Unable to resolve call",10);
     testerr("f0 = { f x -> f0(x-1) }; f0({+},2)", "Passing 1 arguments to f0 which takes 2 arguments",16);
     // Recursive:
     test("fact = { x -> x <= 1 ? x : x*fact(x-1) }; fact(3)",TypeInt.con(6));
@@ -293,7 +303,7 @@ public class TestParse {
     test_obj("(1,\"abc\").1", TypeStr.ABC);
 
     // Named type variables
-    test("gal=:flt; gal", TypeFunPtr.make(BitsFun.make0(35),2,TypeFunPtr.NO_DISP));
+    test("gal=:flt; gal", TypeFunPtr.make(TEST_FUNBITS,2,TypeFunPtr.NO_DISP));
     test("gal=:flt; 3==gal(2)+1", TypeInt.TRUE);
     test("gal=:flt; tank:gal = gal(2)", TypeInt.con(2).set_name("gal:"));
     // test    ("gal=:flt; tank:gal = 2.0", TypeName.make("gal",TypeFlt.con(2))); // TODO: figure out if free cast for bare constants?
@@ -498,7 +508,7 @@ public class TestParse {
          "     ? @{l=map(tree.l,fun);r=map(tree.r,fun);v=fun(tree.v)}"+
          "     : 0};"+
          "map(tmp,{x->x+x})",
-         "@{map=~Scalar;l=*[$]@{map=~Scalar;l=*[$]$?;r=$;v=int64}?;r=$;v=int64}");
+         "@{map=~Scalar;l=*[$]@{map=~Scalar;l=~nil;r=*[$]@{map=~Scalar;l=~nil;r=~nil;v=14};v=10};r=*[$]@{map=~Scalar;l=~nil;r=*[$]@{map=~Scalar;l=~nil;r=~nil;v=44};v=40};v=24}");
 
     // A linked-list mixing ints and strings, always in pairs
     String ll_cona = "a=0; ";
@@ -641,115 +651,38 @@ public class TestParse {
   // To 'continue', use '^0'.  To 'break' with non-zero 'val' use '^val'.
   // Break cannot exit with '0'.
   private final String FORELSE="for={pred->{body->!pred()?^;(tmp=body())?^tmp; for pred body}};";
-  // If 'pred' is false, the loop exits with false, else loop continues.
-  // 'body' value is ignored.  Early exit is same as a 'continue' and there is no 'break'.
-  private final String FOR="for={pred->{body->!pred()?^;body(); for pred body}};";
-  @Ignore
+  // If 'pred' is false, the loop exits with false, else loop continues.  'body' value is ignored.
+  // To 'continue', use '^'.
+  // There is no 'break'.
+  private final String DO="do={pred->{body->!pred()?^;body(); do pred body}};";
+
   @Test public void testParse13() {
-    test(FORELSE+"i:=0; for {i++ < 100} {i==50?i}",TypeInt.INT64); // Early exit on condition i==5
-    test(FOR+"sum:=0; i:=0; for {i++ < 100} {sum:=sum+i}; sum",TypeInt.INT64);
-    test("i:=0; for {i++ < 2} {i==-1} ? ",Type.XNIL);    // Late exit, body never returns true.
-    test("i:=0; for {i++ < 100} {i== 5} ? ",TypeInt.BOOL); // Not sure of exit value, except bool
-
-
+    test(DO+"i:=0; do {i++ < 2} {i== 9} ? ",Type.XNIL);    // Late exit, body never returns true.
+    test(FORELSE+"i:=0; for {i++ < 100} {i== 5} ",TypeInt.BOOL); // Not sure of exit value, except bool
+    test(FORELSE+"i:=0; for {i++ < 100} {i==50?i}",TypeInt.INT64); // Early exit on condition i==50
+    test(DO+"sum:=0; i:=0; do {i++ < 100} {sum:=sum+i}; sum",TypeInt.INT64);
   }
 
-  /* Closures
-
-----
-Sequential looping constructs, not recursion.  Pondering keyword 'for' for
-sequential iteration.  Using a 3-ascii-char keyword, because sequential
-iteration cannot be parallelized.
-
-^expr // early function return, can be used instead of 'break'
-
-'for' becomes a 2-arg function taking a boolean (with side-effects) and a
-no-arg function.  In this case, the iterator is outside the for-scope.
-    sum:=0; i:=0; for (i++ < 100) {sum+=i}
-    sum:=0; i:=0; for(i++ < 100,{sum+=i})
-    sum:=0; for { i:=0; i++ < 100; {sum+=i} }
-    for( i++ < 100, sum += i )
-    sum:=0; i:=0; for{i++<100}{sum+=i;} // this version takes 2 functions
-
-Python uses "iteratables" for tight syntax on for-loops.
-Still has while loops, which do not introduce a scope.
-    sum:=0; i:=0; while( i++ < 100 ) { sum+=i }; sum
-
-No 'break' but early function exit ^.
-    sum := 0;
-    i := 0;
-    for {i++ < 100 } {
-      (sum+=i) > 1000 ? ^sum;     // ?: syntax, no colon, break in the 'then' clause
-    }
-
-Hiding the scope of 'i' via burying in another function:
-    { i:=0; do {i++ < 100} { sum+=i; sum > 1000 ? ^0; } }()
-
-Defining 'for' as a function; exit from the body with truthy continues loop (but
-exits body early) - same as a continue.  Falling off bottom defaults to true???
-Exit with false exits loop - same as break.
-
-    for = { pred body -> pred && !body ? for pred body }
-Using:
-    sum:=0;i:=0; for {i++<100} {sum+=i; sum > 1000}; sys.p(sum);
-
-Other forms of for:
-x:=0; for {
-  !(x < 10) ? ^0; // return false, so loop exit
-  ! x%2 ? ^1;     // return true, so loop "continues"
-  sys.p(x)
-  ++x
-}
-x:=0; for {x<10} {x++} {
-  ! x%2 ? ^1;
-  sys.p(x)
-}
-
-
-  */
-
-/*
-  Array creation: just [7] where '[' is a unary prefix, and ']' is a unary postfix.
-  ary = [7]; // untyped, will infer
-  ary = [7]:int; // typed as array of int
-  #ary == 7 // array length
-
-  Index: "ary [ int" with '[' as an infix operator.
-  Yields a "fat pointer".
-  Get: ']' postfix operator.  Example: ary[3] looks up item #3
-  Put: ']='  infix operator.  Example: ary[2]=5;
-
-  Parallel map on arrays; yields a new array
-    ary.{e idx -> fun e}
-  Parallel map/reduce
-    (ary2, reduction) = ary.{e -> fun e}.{b1 b2 -> b1+b2 }
-  For loop, serial order
-    ary.for({e idx -> .... })
-  For loop, no array
-    for( i:=0; i<#ary; i++ ) ...
-
- */
-
   // Array syntax examples
-  @Ignore
   @Test public void testParse14() {
-    test("[3]:int", Type.ALL);      // Array of 3 ints, all zeroed.  Notice ambiguity with array-of-1 element being a 3.
-    test("ary = [3]; ary[0]:=0; ary[1]:=1; ary[2]:=2; (ary[0],ary[1],ary[2])", Type.ALL); // array create, array storing
-    test("[0,1,2]", Type.ALL); // array create syntax, notice ambiguity with making a new sized array.
-    testerr("ary=[3]; ary[3]",null,0); // AIOOBE
-    testerr("ary=[3]; ary[-1]",null,0); // AIOOBE vs end-of-array math
-    test("ary=[3];#ary",Type.ALL); // Array length
-
-    test("ary=[99]; i:=0; do (i++ < #ary) {ary[i]=i*i}", Type.ALL); // sequential iteration over array
+    test_ptr("[3]", "[$]~nil/obj");
+    test    ("ary = [3]; ary[0]", Type.XNIL);
+    test    ("[3][0]", Type.XNIL);
+    test    ("ary = [3]; ary[0]:=2", TypeInt.con(2));
+    test_obj("ary = [3]; ary[0]:=0; ary[1]:=1; ary[2]:=2; (ary[0],ary[1],ary[2])", // array create, array storing
+      TypeStruct.make_tuple(Type.XNIL,TypeInt.INT8,TypeInt.INT8,TypeInt.INT8));
+    testary("0[0]","~nil is not a *[6][]Scalar/obj",2);
+    testary("[3] [4]","Index must be out of bounds",5);
+    testary("[3] [-1]","Index must be out of bounds",5);
+    test_obj("[3]:[int]", TypeAry.make(TypeInt.con(3),Type.XNIL,TypeObj.OBJ)); // Array of 3 XNILs in INTs.
+    //test("[1,2,3]", TypeAry.make(TypeInt.con(1),TypeInt.con(3),TypeInt.INT8)); // Array of 3 elements
+    test("ary=[3];#ary",TypeInt.con(3)); // Array length
+    test_ptr(DO+"ary=[99]; i:=0; do {i++ < #ary} {ary[i]:=i*i};ary", "[$]int64/obj"); // sequential iteration over array
+    // ary.{e -> f(e)} // map over array elements
+    // ary.{e -> f(e)}.{e0 e1 -> f(e0,e1) } // map/reduce over array elements
   }
 
   /*
-
-// No ambiguity:
- { x } // no-arg-function returning external variable x; same as { -> x }
- { x,} // 1-elem struct    wrapping external variable x, without using '@{}'
-@{ x } // 1-elem struct type with field named x
-
 // type variables are free in : type expressions
 
 // Define a pair as 2 fields "a" and "b" both with the same type T.  Note that
@@ -769,20 +702,6 @@ map:MapType  = { f list -> ... }
 // Field 'next' can be null or List(A).
 // Field 'val' is type A.
 List = :@{ next:List?, val:A }
-
-list = @{ next:nil, val:1.2 }
-
-List = :@{ next, val }
-head = { list -> list.val  } // fails to compile if list is nil
-tail = { list -> list.next } // fails to compile if list is nil
-
-map = { f list -> list ? List(@{map(f,list.next),f(list.val)}) : 0 }
-
-// Type A can allow nulls, or not
-strs:List(0)    = ... // List of nulls
-strs:List(str)  = ... // List of not-null strings
-strs:List(str?) = ... // List of null-or-strings
-
    */
 
   /*** Fanciful attempt at a HashTable class.  No resize, size, clear, etc.
@@ -790,12 +709,13 @@ HashTable = {@{
   _tab = [7];
 
   get = { key ->
-    entry = _tab[key.hash() % _tab.len];
-    entry && key.equals(entry.key) ? entry.val;
+    entry = _tab[key.hash() % #_tab];
+    entry && key.eq(entry.key) ? entry.val;
   }
   put = { key val ->
-    idx = key.hash() % _tab.len;
+    idx = key.hash() % #_tab;
     entry = _tab[idx];
+    entry && key.eq(entry.key) ? (oldval=entry.val; entry.val:=val; ^oldval);
     _tab[idx]= @{key=key; val=val; next=entry};
     entry ? entry.val;
   }
@@ -915,6 +835,13 @@ HashTable = {@{
     //     \\[     Replacement [ because the first one got matched and replaced.
     //     \\$     Prevent $ being interpreted as a regex group start
     return err.replaceAll("\\[[,0-9]*", "\\[\\$");
+  }
+  static private void testary( String program, String err, int cur_off ) {
+    TypeEnv te = Exec.go(Env.file_scope(Env.top_scope()),"args",program);
+    assertTrue(te._errs != null && te._errs.size()>=1);
+    String cursor = new String(new char[cur_off]).replace('\0', ' ');
+    String err2 = "\nargs:0:"+err+"\n"+program+"\n"+cursor+"^\n";
+    assertEquals(err2,te._errs.get(0).toString());
   }
 
 }

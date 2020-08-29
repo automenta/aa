@@ -3,8 +3,6 @@ package com.cliffc.aa.type;
 import com.cliffc.aa.util.SB;
 import com.cliffc.aa.util.VBitSet;
 
-import java.util.Arrays;
-
 // Function signatures: formal arguments (and return) used to type-check.  This
 // is NOT any "code pointer" or "function index" or "fidx"; see TypeFunPtr.
 public final class TypeFunSig extends Type<TypeFunSig> {
@@ -37,7 +35,7 @@ public final class TypeFunSig extends Type<TypeFunSig> {
   private static TypeFunSig FREE=null;
   @Override protected TypeFunSig free( TypeFunSig ret ) { FREE=this; return ret; }
   public static TypeFunSig make( TypeStruct formals, Type ret ) {
-    assert formals._ts[0].is_display_ptr() && ret.isa(SCALAR);
+    assert formals._ts[0].is_display_ptr() && (ret.isa(SCALAR) || ret instanceof TypeTuple);
     TypeFunSig t1 = FREE;
     if( t1 == null ) t1 = new TypeFunSig(formals,ret);
     else {   FREE = null;        t1.init(formals,ret); }
@@ -62,6 +60,7 @@ public final class TypeFunSig extends Type<TypeFunSig> {
     case TFUNSIG: break;
     case TFUNPTR:
       return ALL;               // Not supposed to mix TypeFunPtr and TypeFunSig
+    case TARY:
     case TFLT:
     case TINT:
     case TLIVE:

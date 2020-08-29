@@ -232,11 +232,12 @@ public class TypeMem extends Type<TypeMem> {
     // All memory.  Includes breakouts for all structs and all strings.
     // Triggers BitsAlias.<clinit> which makes all the initial alias splits.
     // Not currently including closures
-    TypeObj[] tos = new TypeObj[Math.max(BitsAlias.RECORD,BitsAlias.ABC)+1];
+    TypeObj[] tos = new TypeObj[Math.max(BitsAlias.RECORD,BitsAlias.ARY)+1];
     tos[BitsAlias.ALL] = TypeObj.ISUSED;
     tos[BitsAlias.RECORD]=TypeStruct.ALLSTRUCT;
-    tos[BitsAlias.ARY] = TypeStr.STR; // TODO: Proxy for all-arrays
+    tos[BitsAlias.STR] = TypeStr.STR; //
     tos[BitsAlias.ABC] = TypeStr.ABC; //
+    tos[BitsAlias.ARY] = TypeAry.ARY; //
     MEM  = make0(tos);
     XMEM = MEM.dual();
 
@@ -371,7 +372,10 @@ public class TypeMem extends Type<TypeMem> {
     return sharp;               // return new not old
   }
   // Sharpen if a maybe-pointer
-  @Override public Type sharptr( Type ptr ) { return ptr instanceof TypeMemPtr ? sharpen((TypeMemPtr)ptr) : ptr; }
+  @Override public Type sharptr( Type ptr ) {
+    return ptr instanceof TypeMemPtr ? sharpen((TypeMemPtr)ptr) :
+      (ptr instanceof TypeTuple ? ((TypeTuple)ptr).sharptr(this) : ptr);
+  }
 
   // Widen (lose info), to make it suitable as the default memory.
   public TypeMem crush() {
@@ -414,6 +418,15 @@ public class TypeMem extends Type<TypeMem> {
     return make(_make1(pubs.asAry()));
   }
 
+  // Array store into a conservative set of aliases.
+  public TypeMem update( BitsAlias aliases, TypeInt idx, Type val ) {
+    Ary<TypeObj> pubs  = new Ary<>(_pubs .clone());
+    for( int alias : aliases )
+      if( alias != 0 )
+        for( int kid=alias; kid != 0; kid=BitsAlias.next_kid(alias,kid) )
+          pubs.setX(kid,at(_pubs,kid).update(idx,val)); // imprecise
+    return make(_make1(pubs.asAry()));
+  }
 
   // Everything NOT in the 'escs' is flattened to UNUSED.
   public TypeMem remove_no_escapes( BitsAlias escs ) {

@@ -234,7 +234,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     return t1.init(name, any,flds,ts,flags,open);
   }
   private TypeStruct hashcons_free() {
-    _ts = TypeAry.hash_cons(_ts);
+    _ts = Types.hash_cons(_ts);
     TypeStruct t2 = (TypeStruct)hashcons();
     return this==t2 ? this : free(t2);
   }
@@ -330,14 +330,16 @@ public class TypeStruct extends TypeObj<TypeStruct> {
 
   // Default tuple field names - all bottom-field names
   static String[] flds(String... fs) { return fs; }
+  public  static final String[] ARGS_ = flds("^");           // Used for functions of 0 args
   public  static final String[] ARGS_X  = flds("^","x");     // Used for functions of 1 arg
   public  static final String[] ARGS_XY = flds("^","x","y"); // Used for functions of 2 args
-  public  static Type[] ts() { return TypeAry.get(0); }
-  public  static Type[] ts(Type t0) { Type[] ts = TypeAry.get(1); ts[0]=t0; return ts;}
-  public  static Type[] ts(Type t0, Type t1) { Type[] ts = TypeAry.get(2); ts[0]=t0; ts[1]=t1; return ts;}
-  public  static Type[] ts(Type t0, Type t1, Type t2) { Type[] ts = TypeAry.get(3); ts[0]=t0; ts[1]=t1; ts[2]=t2; return ts;}
-  public  static Type[] ts(Type t0, Type t1, Type t2, Type t3) { Type[] ts = TypeAry.get(4); ts[0]=t0; ts[1]=t1; ts[2]=t2; ts[3]=t3; return ts;}
-  public  static Type[] ts(int n) { Type[] ts = TypeAry.get(n); Arrays.fill(ts,SCALAR); return ts; } // All Scalar fields
+  public  static final String[] ARGS_XYZ= flds("^","x","y","z"); // Used for functions of 3 args
+  public  static Type[] ts() { return Types.get(0); }
+  public  static Type[] ts(Type t0) { Type[] ts = Types.get(1); ts[0]=t0; return ts;}
+  public  static Type[] ts(Type t0, Type t1) { Type[] ts = Types.get(2); ts[0]=t0; ts[1]=t1; return ts;}
+  public  static Type[] ts(Type t0, Type t1, Type t2) { Type[] ts = Types.get(3); ts[0]=t0; ts[1]=t1; ts[2]=t2; return ts;}
+  public  static Type[] ts(Type t0, Type t1, Type t2, Type t3) { Type[] ts = Types.get(4); ts[0]=t0; ts[1]=t1; ts[2]=t2; ts[3]=t3; return ts;}
+  public  static Type[] ts(int n) { Type[] ts = Types.get(n); Arrays.fill(ts,SCALAR); return ts; } // All Scalar fields
 
   public  static TypeStruct make(Type[] ts) { return malloc(ts).hashcons_free(); }
   public  static TypeStruct malloc(Type[] ts) {
@@ -402,8 +404,8 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   }
   private static final HashMap<TPair,TypeStruct> MEETS0 = new HashMap<>();
 
-  public  static final TypeStruct ANYSTRUCT = malloc("",true ,new String[0],TypeAry.get(0),fbots(0),false).hashcons_free();
-  public  static final TypeStruct ALLSTRUCT = malloc("",false,new String[0],TypeAry.get(0),fbots(0),true ).hashcons_free();
+  public  static final TypeStruct ANYSTRUCT = malloc("",true ,new String[0], Types.get(0),fbots(0),false).hashcons_free();
+  public  static final TypeStruct ALLSTRUCT = malloc("",false,new String[0], Types.get(0),fbots(0),true ).hashcons_free();
   // The display is a self-recursive structure: slot 0 is a ptr to a Display.
   // To break class-init cycle, this is partially made here, now.
   // Then we touch TypeMemPtr, which uses this field.
@@ -432,6 +434,9 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   public  static final TypeStruct FLT64_FLT64= make_args(ARGS_XY,ts(NO_DISP,TypeFlt.FLT64,TypeFlt.FLT64)); // {flt flt->flt }
   public  static final TypeStruct OOP_OOP    = make_args(ARGS_XY,ts(NO_DISP,TypeMemPtr.USE0,TypeMemPtr.USE0));
   public  static final TypeStruct SCALAR1    = make_args(ARGS_X ,ts(NO_DISP,SCALAR));
+  public  static final TypeStruct LVAL_LEN   = make_args(ARGS_X ,ts(NO_DISP,TypeMemPtr.ARYPTR)); // Array
+  public  static final TypeStruct LVAL_RD    = make_args(ARGS_XY,ts(NO_DISP,TypeMemPtr.ARYPTR,TypeInt.INT64)); // Array & index
+  public  static final TypeStruct LVAL_WR    = make_args(ARGS_XYZ,ts(NO_DISP,TypeMemPtr.ARYPTR,TypeInt.INT64,Type.SCALAR)); // Array & index & element
 
   // A bunch of types for tests
   public  static final TypeStruct NAMEPT= make("Point:",flds("^","x","y"),ts(NO_DISP,TypeFlt.FLT64,TypeFlt.FLT64),ffnls(3));
@@ -450,7 +455,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     assert name==null || fldBot(name) || find(name)==-1;
     assert !_any && _open;
 
-    Type  []   ts = TypeAry.copyOf(_ts   ,_ts   .length+1);
+    Type  []   ts = Types.copyOf(_ts   ,_ts   .length+1);
     String[] flds = Arrays .copyOf(_flds ,_flds .length+1);
     byte[]  flags = Arrays .copyOf(_flags,_flags.length+1);
     ts   [_ts.length] = tfld;
@@ -461,7 +466,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   public TypeStruct set_fld( int idx, Type t, byte ff ) {
     Type[] ts  = _ts;
     byte[] ffs = _flags;
-    if( ts  [idx] != t  ) ( ts = TypeAry.clone(_ts))[idx] = t;
+    if( ts  [idx] != t  ) ( ts = Types.clone(_ts))[idx] = t;
     if( fmod(idx) != ff ) flags(ffs= _flags .clone(),idx,set_fmod(_flags[idx],ff));
     return make_from(_any,ts,ffs);
   }
@@ -544,12 +549,12 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   // Dual the flds, dual the tuple.
   @Override protected TypeStruct xdual() {
     String[] as = new String[_flds.length];
-    Type  [] ts = TypeAry.get(_ts  .length);
+    Type  [] ts = Types.get(_ts  .length);
     byte  [] bs = new byte  [_ts  .length];
     for( int i=0; i<as.length; i++ ) as[i] = sdual(_flds  [i]);
     for( int i=0; i<ts.length; i++ ) ts[i] = _ts[i].dual();
     for( int i=0; i<bs.length; i++ ) flags(bs,i,fdual(_flags[i]));
-    ts = TypeAry.hash_cons(ts);
+    ts = Types.hash_cons(ts);
     return new TypeStruct(_name,!_any,as,ts,bs,!_open);
   }
 
@@ -557,7 +562,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   @Override TypeStruct rdual() {
     if( _dual != null ) return _dual;
     String[] as = new String[_flds.length];
-    Type  [] ts = TypeAry.get(_ts.length);
+    Type  [] ts = Types.get(_ts.length);
     byte  [] bs = new byte  [_ts  .length];
     for( int i=0; i<as.length; i++ ) as[i]=sdual(_flds[i]);
     for( int i=0; i<bs.length; i++ ) flags(bs,i,fdual(_flags[i]));
@@ -567,7 +572,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
       dual._hash = dual.compute_hash(); // Compute hash before recursion
     }
     for( int i=0; i<ts.length; i++ ) ts[i] = _ts[i].rdual();
-    dual._ts = TypeAry.hash_cons(ts); // hashcons cyclic arrays
+    dual._ts = Types.hash_cons(ts); // hashcons cyclic arrays
     dual._dual = this;
     dual._cyclic = _cyclic;
     return dual;
@@ -584,6 +589,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   @Override protected Type xmeet( Type t ) {
     switch( t._type ) {
     case TSTRUCT:break;
+    case TARY:
     case TLIVE:
     case TSTR:   return OBJ;
     case TOBJ:   return t.xmeet(this);
@@ -621,7 +627,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     int len = _any ? tmax._ts.length : _ts.length;
     // Meet of common elements
     String[] as = new String[len];
-    Type  [] ts = TypeAry.get(len);
+    Type  [] ts = Types.get(len);
     byte  [] bs = new byte  [len];
     for( int i=0; i<_ts.length; i++ ) {
       as[i] = smeet(_flds   [i],     tmax._flds  [i]);
@@ -751,7 +757,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   // Make a deep clone of this TypeStruct that is not interned.
   private TypeStruct shallow_clone() {
     assert _cyclic;
-    Type[] ts = TypeAry.get(_ts.length);
+    Type[] ts = Types.get(_ts.length);
     Arrays.fill(ts,Type.ANY);
     TypeStruct tstr = malloc(_name,_any,_flds.clone(),ts,_flags.clone(),_open);
     tstr._cyclic = true;
@@ -816,7 +822,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     TypeStruct nts = (TypeStruct)old.clone();
     nts._flds  = old._flds .clone();
     nts._flags = old._flags.clone();
-    nts._ts    = TypeAry.clone(old._ts);
+    nts._ts    = Types.clone(old._ts);
     OLD2APX.put(old,nts);
     for( int i=0; i<old._ts.length; i++ ) // Fill clone with approximation
       if( old._ts[i]._type == TMEMPTR )
@@ -1131,7 +1137,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
       if( t instanceof TypeStruct ) {
         ((TypeStruct)t)._cyclic = bcs.get(t._uid);
         TypeStruct ts = (TypeStruct)t;
-        ts._ts = TypeAry.hash_cons(ts._ts); // hashcons cyclic arrays
+        ts._ts = Types.hash_cons(ts._ts); // hashcons cyclic arrays
       }
       t._dual=null;             // Remove any duals, so re-inserted clean
     }
@@ -1191,7 +1197,8 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     Type t = TypeObj.UNUSED;
     for( int alias : dull._aliases )
       if( alias != 0 )
-        t = t.meet(mem.at(alias));
+        for( int kid=alias; kid != 0; kid=BitsAlias.next_kid(alias,kid) )
+          t = t.meet(mem.at(kid));
     TypeMemPtr dptr = dull.make_from((TypeObj)t);
     if( _is_sharp(t) ) {        // If sharp, install and return
       mem.sharput(dull,dptr);
@@ -1265,7 +1272,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   }
   private TypeStruct _clone() {
     assert interned();
-    Type[] ts = TypeAry.clone(_ts);
+    Type[] ts = Types.clone(_ts);
     TypeStruct t = malloc(_name,_any,_flds,ts,_flags,_open);
     t._hash = t.compute_hash();
     return t;
@@ -1316,7 +1323,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     // and the StoreNode output must remain monotonic.  This means store
     // updates are allowed to proceed even if in-error.
     byte[] flags = _flags.clone();
-    Type[] ts    = TypeAry.clone(_ts);
+    Type[] ts    = Types.clone(_ts);
     _update(flags,ts,fin,idx,val,precise);
     return malloc(_name,_any,_flds,ts,flags,_open).hashcons_free();
   }
@@ -1338,7 +1345,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
     TypeStruct trhs = (TypeStruct)obj;
     if( trhs._ts.length < _ts.length ) throw com.cliffc.aa.AA.unimpl(); // Probably type error from parser
 
-    Type[] ts = TypeAry.clone(trhs._ts);
+    Type[] ts = Types.clone(trhs._ts);
     byte[] flags = trhs._flags.clone();
     // Type error for mis-matched fields.  Meet common fields.
     int len = _ts.length;
@@ -1357,7 +1364,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   }
 
   @Override TypeObj flatten_fields() {
-    Type[] ts = TypeAry.get(_ts.length);
+    Type[] ts = Types.get(_ts.length);
     Arrays.fill(ts,SCALAR);
     return make_from(_any,ts,fbots(_ts.length));
   }
@@ -1404,7 +1411,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   // a future error Store); field flags set to bottom; the field names are kept.
   @Override public TypeStruct crush() {
     if( _any ) return this;     // No crush on high structs
-    Type[] ts = TypeAry.clone(_ts);
+    Type[] ts = Types.clone(_ts);
     byte[] flags = _flags.clone();
     for( int i=0; i<ts.length; i++ )
       if( is_modifable(fmod(i)) ) { ts[i]=ALL; flags[i]=FBOT; }// Widen writables to ALL, as-if crushed by errors
@@ -1415,7 +1422,7 @@ public class TypeStruct extends TypeObj<TypeStruct> {
   }
   // Keep field names and orders.  Widen all field contents, including finals.
   @Override public Type widen() {
-    Type[] ts = TypeAry.clone(_ts);
+    Type[] ts = Types.clone(_ts);
     for( int i=0; i<ts.length; i++ )
       ts[i] = _ts[i].widen();
     return make_from(ts);

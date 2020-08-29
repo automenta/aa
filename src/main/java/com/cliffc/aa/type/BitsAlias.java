@@ -22,9 +22,9 @@ public class BitsAlias extends Bits<BitsAlias> {
 
   static final Bits.Tree<BitsAlias> TREE = new Bits.Tree<>();
   @Override public Tree<BitsAlias> tree() { return TREE; }
-  public static final int ALL, ARY, STR, RECORD, ABC;
+  public static final int ALL, AARY, STR, RECORD, ABC, ARY;
   public static BitsAlias RECORD_BITS, STRBITS0;
-  public static BitsAlias FULL, NZERO, ANY, EMPTY, NIL, STRBITS, RECORD_BITS0;
+  public static BitsAlias FULL, NZERO, ANY, EMPTY, NIL, STRBITS, RECORD_BITS0, ARYBITS;
 
   static {
     // The All-Memory alias class
@@ -40,11 +40,14 @@ public class BitsAlias extends Bits<BitsAlias> {
     RECORD_BITS0 = RECORD_BITS.meet_nil();
 
     // Arrays
-    ARY = type_alias(ALL);
+    AARY = type_alias(ALL);
     // Split Arrays into Strings (vs other arrays)
-    STRBITS = make0(STR = type_alias(ARY));
+    STRBITS = make0(STR = type_alias(AARY));
     STRBITS0 = STRBITS.meet_nil();
     ABC = type_alias(STR);
+
+    ARY = type_alias(AARY);
+    ARYBITS = make0(ARY);
   }
   // True if kid is a child or equal to parent
   public static boolean is_parent( int par, int kid ) { return TREE.is_parent(par,kid); }

@@ -30,7 +30,7 @@ public final class CallEpiNode extends Node {
 
   @Override public Node ideal(GVNGCM gvn, int level) {
     CallNode call = call();
-    Type tc = gvn.type(call);
+    Type tc = call._val;
     if( !(tc instanceof TypeTuple) ) return null;
     TypeTuple tcall = (TypeTuple)tc;
     if( CallNode.tctl(tcall) != Type.CTRL ) return null; // Call not executable
@@ -63,14 +63,16 @@ public final class CallEpiNode extends Node {
     if( nwired()==1 && fidxs.abit() != -1 ) { // Wired to 1 target
       RetNode ret = wired(0);                 // One wired return
       FunNode fun = ret.fun();
+      Type tdef = Env.DEFMEM._val;
+      TypeTuple tret = ret._val instanceof TypeTuple ? (TypeTuple)ret._val : (TypeTuple)ret._val.oob(TypeTuple.RET);
+      Type tretmem = tret.at(1);
       if( fun != null && fun._defs._len==2 && // Function is only called by 1 (and not the unknown caller)
-          call.err(gvn,true)==null &&   // And args are ok
-          // And memory types are aligned
-          gvn.type(ret.mem()).isa(((TypeTuple)gvn.self_type(this)).at(1)) &&
+          call.err(true)==null &&   // And args are ok
+          CallNode.emem(tcall).isa(tdef) &&
+          tretmem.isa(tdef) &&          // Call and return memory at least as good as default
           call.mem().in(0) != call &&   // Dead self-recursive
           !fun.noinline() ) {           // And not turned off
         assert fun.in(1).in(0)==call;   // Just called by us
-        // TODO: Bring back SESE opts
         fun.set_is_copy(gvn);
         return inline(gvn,level, call, ret.ctl(), ret.mem(), ret.val(), null/*do not unwire, because using the entire function body inplace*/);
       }
@@ -83,31 +85,28 @@ public final class CallEpiNode extends Node {
     if( fidxs.above_center() ) return null; // Can be unresolved yet
     if( BitsFun.is_parent(fidx) ) return null; // Parent, only 1 child wired
 
-    if( call.err(gvn,true)!=null ) return null; // CallNode claims args in-error, do not inline
+    if( call.err(true)!=null ) return null; // CallNode claims args in-error, do not inline
 
     // Call allows 1 function not yet inlined, sanity check it.
     int cnargs = call.nargs();
     FunNode fun = FunNode.find_fidx(fidx);
     assert !fun.is_forward_ref() && !fun.is_dead()
-      && gvn.type(fun) == Type.CTRL
+      && fun._val == Type.CTRL
       && fun.nargs() == cnargs; // All checked by call.err
     RetNode ret = fun.ret();    // Return from function
     if( ret==null ) return null;
 
-    // Single choice; check compatible args and no conversions needed.
+    // Single choice; check no conversions needed.
     TypeStruct formals = fun._sig._formals;
     for( Node parm : fun._uses ) {
       if( parm instanceof ParmNode && parm.in(0)==fun ) {
         int idx = ((ParmNode)parm)._idx;
-        if( idx == -1 ) continue; // RPC not an arg
-        Type actual = idx==-2 ? CallNode.emem(tcall) : CallNode.targ(tcall,idx);
+        if( idx < 0 ) continue; // RPC, Mem
+        Type actual = CallNode.targ(tcall,idx);
         // Display arg comes from function pointer
         if( idx==0 ) actual = (actual instanceof TypeFunPtr) ? ((TypeFunPtr)actual)._disp : Type.SCALAR;
-        Type tparm = gvn.type(parm); // Pre-GCP this should be the default type
-        if( !actual.isa(tparm) ||  // Not compatible
-            (idx >= 0 && actual.isBitShape(formals.at(idx)) == 99) ) { // Requires user-specified conversion
+        if( actual.isBitShape(formals.at(idx)) == 99 ) // Requires user-specified conversion
           return null;
-        }
       }
     }
 
@@ -119,20 +118,19 @@ public final class CallEpiNode extends Node {
     Node rmem = ret.mem();      // Memory  being returned
     Node rrez = ret.val();      // Value   being returned
     // If the function does nothing with memory, then use the call memory directly.
-    if( (rmem instanceof ParmNode && rmem.in(0) == fun) || gvn.type(rmem)==TypeMem.XMEM )
+    if( (rmem instanceof ParmNode && rmem.in(0) == fun) || rmem._val==TypeMem.XMEM )
       rmem = cmem;
     // Check that function return memory and post-call memory are compatible
-    Type tself = gvn.type(this);
-    if( !(tself instanceof TypeTuple) ) return null;
-    Type selfmem = ((TypeTuple)tself).at(1);
-    if( !gvn.type(rmem).isa( selfmem ) && !(selfmem==TypeMem.ANYMEM && call.is_pure_call()!=null) )
+    if( !(_val instanceof TypeTuple) ) return null;
+    Type selfmem = ((TypeTuple)_val).at(1);
+    if( !rmem._val.isa( selfmem ) && !(selfmem==TypeMem.ANYMEM && call.is_pure_call()!=null) )
       return null;
 
     // Check for zero-op body (id function)
     if( rrez instanceof ParmNode && rrez.in(0) == fun && cmem == rmem )
       return inline(gvn,level,call, cctl,cmem,call.arg(((ParmNode)rrez)._idx), ret);
     // Check for constant body
-    Type trez = gvn.type(rrez);
+    Type trez = rrez._val;
     if( trez.is_con() && rctl==fun && cmem == rmem)
       return inline(gvn,level,call, cctl,cmem,gvn.con(trez),ret);
 
@@ -146,6 +144,7 @@ public final class CallEpiNode extends Node {
     if( fun.noinline() ) can_inline=false;
     if( can_inline ) {
       Node irez = rrez.copy(false,gvn);// Copy the entire function body
+      irez._val = null;
       ProjNode proj = ProjNode.proj(this,2);
       irez._live = proj==null ? TypeMem.ALIVE : proj._live;
       for( Node parm : rrez._defs )
@@ -160,10 +159,10 @@ public final class CallEpiNode extends Node {
   // Used during GCP and Ideal calls to see if wiring is possible.
   // Return true if a new edge is wired
   public boolean check_and_wire( GVNGCM gvn ) {
-    if( gvn._opt_mode == 0 ) return false; // Graph not formed yet
-    if( !(gvn.type(this) instanceof TypeTuple) ) return false; // Collapsing
+    if( gvn._opt_mode == GVNGCM.Mode.Parse ) return false; // Graph not formed yet
+    if( !(_val instanceof TypeTuple) ) return false; // Collapsing
     CallNode call = call();
-    Type tcall = gvn.type(call);
+    Type tcall = call._val;
     if( !(tcall instanceof TypeTuple) ) return false;
     BitsFun fidxs = CallNode.ttfp(tcall)._fidxs;
     if( fidxs.above_center() )  return false; // Still choices to be made during GCP.
@@ -194,6 +193,7 @@ public final class CallEpiNode extends Node {
     gvn.add_work(this);
     gvn.add_def(this,ret);
     gvn.add_work(ret);
+    gvn.add_work_defs(call);
   }
 
   // Wire without the redundancy check, or adding to the CallEpi
@@ -210,18 +210,18 @@ public final class CallEpiNode extends Node {
       // See CallNode output tuple type for what these horrible magic numbers are.
       Node actual;
       int idx = ((ParmNode)arg)._idx;
-      TypeMem live;
+      TypeMem live = arg._live;
       switch( idx ) {
-      case  0: actual = new FP2ClosureNode(call); live = TypeMem.ALIVE; break; // Filter Function Pointer to Closure
-      case -1: actual = new ConNode<>(TypeRPC.make(call._rpc)); live = TypeMem.ALIVE; break; // Always RPC is a constant
-      case -2: actual = new MProjNode(call,CallNode.MEMIDX); live = arg._live; break;    // Memory into the callee
+      case  0: actual = new FP2ClosureNode(call); break; // Filter Function Pointer to Closure
+      case -1: actual = new ConNode<>(TypeRPC.make(call._rpc)); break; // Always RPC is a constant
+      case -2: actual = new MProjNode(call,CallNode.MEMIDX); break;    // Memory into the callee
       default: actual = idx >= call.nargs()              // Check for args present
           ? new ConNode<>(Type.ALL) // Missing args, still wire (to keep FunNode neighbors) but will error out later.
           : new ProjNode(idx+CallNode.ARGIDX, call); // Normal args
         live = TypeMem.ESCAPE;
         break;
       }
-      actual = gvn._opt_mode == 2 ? gvn.new_gcp(actual) : gvn.xform(actual);
+      actual = gvn._opt_mode == GVNGCM.Mode.Opto ? gvn.new_gcp(actual) : gvn.xform(actual);
       gvn.add_def(arg,actual);
       actual._live = (TypeMem)actual._live.meet(live);
       gvn.add_work(actual);
@@ -229,7 +229,7 @@ public final class CallEpiNode extends Node {
 
     // Add matching control to function via a CallGraph edge.
     Node callgrf = new CProjNode(call,0);
-    callgrf = gvn._opt_mode == 2 ? gvn.new_gcp(callgrf) : gvn.xform(callgrf);
+    callgrf = gvn._opt_mode == GVNGCM.Mode.Opto ? gvn.new_gcp(callgrf) : gvn.xform(callgrf);
     gvn.add_def(fun,callgrf);
   }
 
@@ -237,13 +237,13 @@ public final class CallEpiNode extends Node {
   // If the Call's type includes all-functions, then the CallEpi must assume
   // unwired Returns may yet appear, and be conservative.  Otherwise it can
   // just meet the set of known functions.
-  @Override public Type value(GVNGCM gvn) {
-    Type tin0 = gvn.type(in(0));
+  @Override public Type value(GVNGCM.Mode opt_mode) {
+    Type tin0 = val(0);
     if( !(tin0 instanceof TypeTuple) )
       return tin0.oob();     // Weird stuff?
     TypeTuple tcall = (TypeTuple)tin0;
     if( tcall._ts.length <= CallNode.ARGIDX ) return tcall.oob(); // Weird stuff
-    Type tcmem = gvn.type(call().mem());
+    Type tcmem = call().mem()._val;
     if( !(tcmem instanceof TypeMem) ) return tcmem.oob();
     TypeMem caller_mem = (TypeMem)tcmem;
 
@@ -268,7 +268,8 @@ public final class CallEpiNode extends Node {
 
     // Default memory: global worse-case scenario
     Node defnode = in(1);
-    Type defmem = gvn.type(defnode);
+    Type defmem = defnode._val;
+    if( !(defmem instanceof TypeMem) ) defmem = defmem.oob(TypeMem.ALLMEM);
 
     // Any not-wired unknown call targets?
     if( fidxs!=BitsFun.FULL ) {
@@ -292,11 +293,11 @@ public final class CallEpiNode extends Node {
         }
         if( BitsFun.is_parent(fidx) ) { // Child of a split parent, need both kids wired
           if( kids==2 ) continue;       // Both kids wired, this is ok
-          return gvn.self_type(this);   // "Freeze in place"
+          return _val;                  // "Freeze in place"
         }
-        if( gvn._opt_mode < 2 )  // Before GCP?  Fidx is an unwired unknown call target
+        if( !opt_mode._CG )  // Before GCP?  Fidx is an unwired unknown call target
           { fidxs = BitsFun.FULL; break; }
-        assert gvn._opt_mode==2; // During GCP, still wiring, post GCP all are wired
+        assert opt_mode==GVNGCM.Mode.Opto; // During GCP, still wiring, post GCP all are wired
       }
     }
 
@@ -310,16 +311,17 @@ public final class CallEpiNode extends Node {
       for( int i=0; i<nwired(); i++ ) {
         RetNode ret = wired(i);
         if( fidxs.test_recur(ret._fidx) ) { // Can be wired, but later fidx is removed
-          TypeTuple tret = (TypeTuple)gvn.type(ret);
-          tmem = tmem.meet(tret.at(1));
-          trez = trez.meet(tret.at(2));
+          Type tret = ret._val;
+          if( !(tret instanceof TypeTuple) ) tret = tret.oob(TypeTuple.RET);
+          tmem = tmem.meet(((TypeTuple)tret).at(1));
+          trez = trez.meet(((TypeTuple)tret).at(2));
         }
       }
     }
     TypeMem post_call = (TypeMem)tmem;
 
     // If no memory projection, then do not compute memory
-    if( gvn._opt_mode > 0 && ProjNode.proj(this,1)==null )
+    if( opt_mode!=GVNGCM.Mode.Parse && ProjNode.proj(this,1)==null )
       return TypeTuple.make(Type.CTRL,TypeMem.ANYMEM,trez);
 
     // Build epilog memory.
@@ -331,7 +333,7 @@ public final class CallEpiNode extends Node {
     for( int i=1; i<pubs.length; i++ ) {
       boolean ein  = tescs._aliases.test_recur(i);
       boolean eout = esc_out       .test_recur(i);
-      pubs[i] = live_out_gcp(ein,eout,caller_mem.at   (i),post_call.at   (i),gvn,defnode.in(i));
+      pubs[i] = live_out_gcp(ein,eout,caller_mem.at(i),post_call.at(i),opt_mode,defnode.in(i));
     }
     TypeMem tmem3 = TypeMem.make0(pubs);
 
@@ -348,14 +350,14 @@ public final class CallEpiNode extends Node {
 
   // If pre-GCP, must lift the types
   // as strong as the Parser, which is a join with default memory.
-  private static TypeObj live_out_gcp(boolean esc_in, boolean esc_out, TypeObj pre, TypeObj post, GVNGCM gvn, Node dn ) {
+  private static TypeObj live_out_gcp(boolean esc_in, boolean esc_out, TypeObj pre, TypeObj post, GVNGCM.Mode opt_mode, Node dn ) {
     if( dn == null ) return null; // A never-made (on this pass) type
-    Type tdn = gvn.type(dn);      // Get default type
-    if( tdn == TypeObj.UNUSED ) return TypeObj.UNUSED; // If dead, then dead
+    Type tdn = dn._val;           // Get default type
+    if( tdn == TypeObj.UNUSED || tdn == TypeObj.ANY ) return TypeObj.UNUSED; // If dead, then dead
     // Decide to take the pre-call or post-call value.
     TypeObj to = esc_in || esc_out ? (TypeObj)post.meet(pre) : pre;
     // After/During GCP, this is the value
-    if( gvn._opt_mode >= 2 ) return to;
+    if( opt_mode._CG ) return to;
     // Before GCP, must use DefNode to keep types as strong as the Parser.
     if( !(dn instanceof MrgProjNode) ) // Some kind of constant.
       // TODO: Probably should just jam down mrgproj/new for these constants
@@ -405,10 +407,10 @@ public final class CallEpiNode extends Node {
       while( !work.isEmpty() ) {
         Node wrk = work.pop();
         if( wrk.is_mem() ) {
-          Type t2 = wrk.value(gvn); // Compute a new type
-          if( !t2.isa(gvn.type(wrk)) ) { // Types out of alignment, need to forward progress here
+          Type t2 = wrk.value(gvn._opt_mode); // Compute a new type
+          if( !t2.isa(wrk._val) ) { // Types out of alignment, need to forward progress here
             // Move types 'down' and add users to worklist.
-            gvn.setype(wrk,t2); // Move 'down', wrong direction, and recognize the escaped type is alive here
+            wrk._val = t2; // Move 'down', wrong direction, and recognize the escaped type is alive here
             assert !(wrk instanceof MProjNode && wrk.in(0) instanceof CallNode); // Should not push work outside the function
             work.addAll(wrk._uses);
           }
@@ -487,14 +489,14 @@ public final class CallEpiNode extends Node {
   @Override public boolean basic_liveness() { return false; }
   // Compute local contribution of use liveness to this def.  If the call is
   // Unresolved, then none of CallEpi targets are (yet) alive.
-  @Override public TypeMem live_use( GVNGCM gvn, Node def ) {
+  @Override public TypeMem live_use(GVNGCM.Mode opt_mode, Node def ) {
     assert _keep==0;
     // Not a copy
     if( def==in(0) ) return _live; // The Call
     if( def==in(1) ) return _live; // The DefMem
     // Wired return.
     // The given function is alive, only if the Call will Call it.
-    Type tcall = gvn.type(call());
+    Type tcall = call()._val;
     if( !(tcall instanceof TypeTuple) ) return tcall.above_center() ? TypeMem.DEAD : _live;
     BitsFun fidxs = CallNode.ttfp(tcall).fidxs();
     int fidx = ((RetNode)def).fidx();
@@ -509,5 +511,5 @@ public final class CallEpiNode extends Node {
   // there, transitively through memory.
   //
   // In practice, just the no-escape aliases
-  @Override BitsAlias escapees( GVNGCM gvn) { return BitsAlias.FULL; }
+  @Override BitsAlias escapees() { return BitsAlias.FULL; }
 }

@@ -20,14 +20,17 @@ import java.util.*;
  *  tstmt= tvar = :type            // type variable assignment
  *  stmt = [id[:type] [:]=]* ifex  // ids are (re-)assigned, and are available in later statements
  *  stmt = ^ifex                   // Early function exit
- *  ifex = expr [? stmt [: stmt]]  // trinary short-circuit logic; missing ":stmt" will default to 0
- *  expr = [uniop] term [binop term]*  // gather all the binops and sort by precedence
- *  term = id++ | id--             //
- *  term = tfact post              // A term is a tfact and some more stuff...
+ *  ifex = apply [? stmt [: stmt]] // trinary short-circuit logic; missing ":stmt" will default to 0
+ *  apply= expr  | expr expr*      // Lisp-like application-as-adjacent
+ *  expr = term [binop term]*      // gather all the binops and sort by precedence
+ *  term = uniop term              // Any number of prefix uniops
+ *  term = id++ | id--             //   then postfix update ops
+ *  term = tfact post              //   A term is a tfact and some more stuff...
  *  post = empty                   // A term can be just a plain 'tfact'
  *  post = (tuple) post            // Application argument list
- *  post = tfact tfact             // Application as adjacent value
  *  post = .field post             // Field and tuple lookup
+ *  post = [stmts] post            // Array lookup
+ *  post = [stmts]:= stmt          // Array assignment
  *  post = .field [:]= stmt        // Field (re)assignment.  Plain '=' is a final assignment
  *  post = .field++ | .field--     // Allowed anytime a := is allowed
  *  post = :type post              // TODO: Add this, remove 'tfact'
@@ -35,15 +38,17 @@ import java.util.*;
  *  fact = id                      // variable lookup
  *  fact = num                     // number
  *  fact = "string"                // string
+ *  fact = [stmts]                 // array decl with size
+ *  fact = [stmts,[stmts,]*]       // array decl with tuple
  *  fact = (stmts)                 // General statements parsed recursively
- *  fact = tuple                   // Tuple builder
+ *  fact = (tuple)                 // Tuple builder
  *  fact = func                    // Anonymous function declaration
  *  fact = @{ stmts }              // Anonymous struct declaration, assignments define fields
  *  fact = {binop}                 // Special syntactic form of binop; no spaces allowed; returns function constant
  *  fact = {uniop}                 // Special syntactic form of uniop; no spaces allowed; returns function constant
  *  tuple= (stmts,[stmts,])        // Tuple; final comma is optional, first comma is required
- *  binop= +-*%&|/<>!= [] ]=       // etc; primitive lookup; can determine infix binop at parse-time
- *  uniop= -!~ []                  // etc; primitive lookup; can determine infix uniop at parse-time
+ *  binop= +-*%&|/<>!= [ ]=        // etc; primitive lookup; can determine infix binop at parse-time
+ *  uniop= -!~# a                   // etc; primitive lookup; can determine infix uniop at parse-time
  *  func = { [id[:type]* ->]? stmts} // Anonymous function declaration, if no args then the -> is optional
  *                                 // Pattern matching: 1 arg is the arg; 2+ args break down a (required) tuple
  *  str  = [.\%]*                  // String contents; \t\n\r\% standard escapes
@@ -59,7 +64,7 @@ import java.util.*;
  *  tvar = id                      // Type variable lookup
  */
 
-public class Parse {
+public class Parse implements Comparable<Parse> {
   private final String _src;            // Source for error messages; usually a file name
   private Env _e;                       // Lookup context; pushed and popped as scopes come and go
   private final byte[] _buf;            // Bytes being parsed
@@ -94,13 +99,43 @@ public class Parse {
   // file-sized ScopeNode with existing variables which survive to the next call.
   // Used by the REPL to do incremental typing.
   TypeEnv go_partial( ) {
+    Node xnil = _gvn.con(Type.XNIL);
+    // Replicate the top-scope & display chain, and set it aside.
+    NewObjNode orig_disp = init(_e._scope.stk().copy(true,_gvn).keep());
+
     prog();        // Parse a program
     _gvn.rereg(_e._scope,Type.ALL);
-    _gvn.rereg(_e._par._scope,Type.ALL);
-    _gvn.iter(1);   // Pessimistic optimizations; might improve error situation
-    _gvn.gcp(_e._scope); // Global Constant Propagation
-    _gvn.iter(3);   // Re-check all ideal calls now that types have been maximally lifted
-    return gather_errors();
+    _e._scope.xliv(_gvn._opt_mode);
+    for( Node n : _gvn.valsKeySet() ) _gvn.add_work(n); // Adding top-level defs must flow everywhere
+    _gvn.iter(GVNGCM.Mode.PesiREPL); // Pessimistic optimizations; might improve error situation
+    _gvn.gcp (GVNGCM.Mode.OptoREPL,_e._scope); // Global Constant Propagation
+    _gvn.iter(GVNGCM.Mode.PesiREPL); // Re-check all ideal calls now that types have been maximally lifted
+    _gvn.gcp (GVNGCM.Mode.OptoREPL,_e._scope); // Global Constant Propagation
+    _gvn.iter(GVNGCM.Mode.PesiREPL); // Re-check all ideal calls now that types have been maximally lifted
+    TypeEnv te = gather_errors();
+    if( te._errs!=null )        // If errors, roll back - no effects from the bad code
+      reset_partial(orig_disp);
+    _gvn.unreg(_e._scope);
+    orig_disp.unkeep(_gvn);
+    _e._scope.set_rez(xnil,_gvn);
+    return te;
+  }
+
+  private void reset_partial(NewObjNode orig_disp) {
+    // Reset display chain back to the saved
+    NewObjNode nnn = _e._scope.stk();
+    _gvn.unreg(nnn);
+    while( !nnn._defs.isEmpty() ) nnn.pop(_gvn);
+    for( Node def : orig_disp._defs )
+      nnn.add_def(def);
+    nnn.sets_out(orig_disp._ts);
+    _gvn.rereg(nnn,nnn.value(GVNGCM.Mode.PesiREPL));
+    _gvn.set_def_reg(_e._scope,1,nnn.mrg());
+    // Everybody has flowed the bad types; unwind them all
+    for( Node n : _gvn.valsKeySet() ) { n._val = Type.ALL; _gvn.add_work(n); }
+    for( Node n : _gvn.valsKeySet() )   n._val = n.value(GVNGCM.Mode.PesiREPL);
+    // Run the worklist dry
+    _gvn.iter(GVNGCM.Mode.PesiREPL);
   }
 
   // Parse the string in the given lookup context, and return an executable
@@ -112,13 +147,13 @@ public class Parse {
     // Delete names at the top scope before final optimization.
     _e.close_display(_gvn);
     _gvn.rereg(_e._scope,Type.ALL);
-    _e._scope._live = _e._scope.live(_gvn);
-    _gvn.iter(1);   // Pessimistic optimizations; might improve error situation
+    _e._scope.xliv(_gvn._opt_mode);
+    _gvn.iter(GVNGCM.Mode.PesiNoCG); // Pessimistic optimizations; might improve error situation
     remove_unknown_callers();
-    _gvn.gcp(_e._scope); // Global Constant Propagation
-    _gvn.iter(3);   // Re-check all ideal calls now that types have been maximally lifted
-    _gvn.gcp(_e._scope); // Global Constant Propagation
-    _gvn.iter(4);   // Re-check all ideal calls now that types have been maximally lifted
+    _gvn.gcp (GVNGCM.Mode.Opto,_e._scope); // Global Constant Propagation
+    _gvn.iter(GVNGCM.Mode.PesiCG); // Re-check all ideal calls now that types have been maximally lifted
+    _gvn.gcp (GVNGCM.Mode.Opto,_e._scope); // Global Constant Propagation
+    _gvn.iter(GVNGCM.Mode.PesiCG); // Re-check all ideal calls now that types have been maximally lifted
     return gather_errors();
   }
 
@@ -140,39 +175,24 @@ public class Parse {
   }
 
   private TypeEnv gather_errors() {
-    _gvn.unreg(_e._scope);
-    _gvn.unreg(_e._par._scope);
-    Node res = _e._scope.pop(); // New and improved result
-    Node mem = _e._scope.mem();
-    Type tres = _gvn.type(res);
-    TypeMem tmem = (TypeMem)_gvn.type(mem);
-
     // Hunt for typing errors in the alive code
     assert _e._par._par==null; // Top-level only
-    VBitSet bs = new VBitSet();
-    bs.set(Env.MEM_0._uid);     // Do not walk initial memory
-    bs.set(Env.STK_0._uid);     // Do not walk initial memory
-    bs.set(_e._scope._uid);     // Do not walk top-level scope
-    bs.set(Env.DEFMEM._uid);    // Do not walk default memory
     HashSet<Node.ErrMsg> errs = new HashSet<>();
-    res   .walkerr_def(errs,bs,_gvn);
-    ctrl().walkerr_def(errs,bs,_gvn);
-    mem   .walkerr_def(errs,bs,_gvn);
-    if( errs.isEmpty() ) _e._scope.walkerr_use(errs,new VBitSet(),_gvn);
-    if( errs.isEmpty() && skipWS() != -1 ) errs.add(Node.ErrMsg.trailingjunk(this));
-    if( errs.isEmpty() ) res.walkerr_gc(errs,new VBitSet(),_gvn);
+    VBitSet bs = new VBitSet();
+    _e._scope.walkerr_def(errs,bs);
+    if( skipWS() != -1 ) errs.add(Node.ErrMsg.trailingjunk(this));
     ArrayList<Node.ErrMsg> errs0 = new ArrayList<>(errs);
     Collections.sort(errs0);
 
-    kill(res);       // Kill Node for returned Type result
-
-    return new TypeEnv(tres,tmem,_e,errs0.isEmpty() ? null : errs0);
+    Type res = _e._scope.rez()._val; // New and improved result
+    Type mem = _e._scope.mem()._val;
+    return new TypeEnv(res, mem instanceof TypeMem ? (TypeMem)mem : mem.oob(TypeMem.ALLMEM),_e,errs0.isEmpty() ? null : errs0);
   }
 
   /** Parse a top-level:
    *  prog = stmts END */
   private void prog() {
-    _gvn._opt_mode = 0;
+    _gvn._opt_mode = GVNGCM.Mode.Parse;
     Node res = stmts();
     if( res == null ) res = con(Type.ANY);
     _e._scope.set_rez(res,_gvn);  // Hook result
@@ -261,7 +281,7 @@ public class Parse {
         _gvn.init0(rez2._uses.at(0));      // Force init of Unresolved
       }
     }
-    _gvn.rereg(stk,stk.value(_gvn)); // Re-install display in GVN
+    _gvn.rereg(stk,stk.value(_gvn._opt_mode)); // Re-install display in GVN
     _gvn.revalive(Env.DEFMEM);       // Update DEFMEM for both functions added
     // TODO: Add reverse cast-away
     return rez;
@@ -366,7 +386,7 @@ public class Parse {
       if( n.is_forward_ref() ) { // Prior is actually a forward-ref, so this is the def
         assert !scope.stk().is_mutable(tok) && scope == _e._scope;
         if( ifex instanceof FunPtrNode )
-          ((FunPtrNode)n).merge_ref_def(_gvn,tok,(FunPtrNode)ifex,(TypeMemPtr)_gvn.type(scope.ptr()));
+          ((FunPtrNode)n).merge_ref_def(_gvn,tok,(FunPtrNode)ifex,(TypeMemPtr)scope.ptr()._val);
         else ; // Can be here if already in-error
       } else { // Store into scope/NewObjNode/display
         // Assign into display
@@ -385,7 +405,7 @@ public class Parse {
    *  ifex = expr [? stmt [: stmt]]
    */
   private Node ifex() {
-    Node expr = expr();
+    Node expr = apply();
     if( expr == null ) return null; // Expr is required, so missing expr implies not any ifex
     if( !peek('?') ) return expr;   // No if-expression
 
@@ -414,9 +434,25 @@ public class Parse {
     f_mem = _e._scope.check_if(false,bad,_gvn,f_ctrl,f_mem); // Insert errors if created only 1 side
     _e._scope.pop_if();         // Pop the if-scope
     RegionNode r = set_ctrl(init(new RegionNode(null,t_ctrl.unhook(),f_ctrl.unhook())).keep());
-    _gvn.setype(r,Type.CTRL);
+    r._val = Type.CTRL;
     set_mem(gvn(new PhiNode(TypeMem.FULL,bad,r       ,t_mem.unhook(),f_mem.unhook())));
     return  gvn(new PhiNode(Type.SCALAR ,bad,r.unhook(),tex.unhook(),  fex.unhook())) ; // Ifex result
+  }
+
+  /** Parse a lisp-like function application
+      apply = expr
+      apply = expr expr*
+   */
+  private Node apply() {
+    Node expr = expr();
+    if( expr == null ) return null;
+    while( true ) {
+      skipWS();
+      int oldx = _x;
+      Node arg = expr();
+      if( arg==null ) return expr;
+      expr = do_call(errMsgs(oldx,oldx),args(expr,arg)); // Pass the 1 arg
+    }
   }
 
   /** Parse an expression, a list of terms and infix operators.  The whole list
@@ -424,38 +460,36 @@ public class Parse {
    *  expr = term [binop term]*
    */
   private Node expr() {
-    Node unifun=null;
-    int oldx = _x;
-    String uni = token();
-    if( uni!=null ) {
-      unifun = _e.lookup_filter(uni.intern(),_gvn,1); // UniOp, or null
-      if( unifun==null || unifun.op_prec() == -1 ) { unifun=null; _x=oldx; } // Not a uniop
-    }
-
-    // [unifun] term [binop term]*
     skipWS();
-    oldx = _x;
+    int oldx = _x;
     Node term = term();
-    if( term == null ) return unifun; // Term is required, so missing term implies not any expr
+    if( term == null ) return null; // Term is required, so missing term implies not any expr
     // Collect 1st fcn/arg pair
     Ary<Node > funs = new Ary<>(new Node [1],0);
-    Ary<Parse> bads = new Ary<>(new Parse[1],0);
+    Ary<Parse> bafs = new Ary<>(new Parse[1],0);
+    Ary<Parse> bats = new Ary<>(new Parse[1],0);
     try( TmpNode args = new TmpNode() ) {
-      funs.add(unifun==null ? null : unifun.keep());
+      funs.add(null);
       args.add_def(term);
-      bads.add(errMsg(oldx));
+      bafs.add(null);
+      bats.add(errMsg(oldx));
 
       // Now loop for binop/term pairs: parse Kleene star of [binop term]
       while( true ) {
+        skipWS();
         oldx = _x;
         String bin = token();
         if( bin==null ) break;    // Valid parse, but no more Kleene star
         Node binfun = _e.lookup_filter(bin.intern(),_gvn,2); // BinOp, or null
         if( binfun==null ) { _x=oldx; break; } // Not a binop, no more Kleene star
-        skipWS();  oldx = _x;
-        term = term();
-        if( term == null ) term = err_ctrl2("missing expr after binary op "+bin);
-        funs.add(binfun.keep());  args.add_def(term);  bads.add(errMsg(oldx));
+        skipWS();
+        int oldx2 = _x;
+        if( (term=term()) == null )
+          term = err_ctrl2("Missing term after '"+bin+"'");
+        funs.add(binfun.keep());
+        args.add_def(term);
+        bafs.add(errMsg(oldx ));
+        bats.add(errMsg(oldx2));
       }
 
       // Have a list of interspersed operators and terms.
@@ -466,74 +500,53 @@ public class Parse {
       while( max >= 0 && args._defs._len > 0 ) {
         for( int i=0; i<funs.len(); i++ ) { // For all ops of this precedence level, left-to-right
           Node  fun = funs.at(i);
-          Parse bad = bads.at(i);
           if( fun==null ) continue;
-          assert fun.op_prec() <= max;
           if( fun.op_prec() < max ) continue; // Not yet
+          Parse baf = bafs.at(i);
+          Parse bat = bats.at(i);
           if( i==0 ) {
-            Node call = do_call(new CallNode(true,new Parse[]{bad,bad},ctrl(),mem(),fun.unhook(),args.in(0)));
+            Node call = do_call(new Parse[]{baf,bat},args(fun.unhook(),args.in(0)));
             args.set_def(0,call,_gvn);
             funs.setX(0,null);
           } else {
-            Parse bad1 = bads.at(i-1);
-            Node call = do_call(new CallNode(true,new Parse[]{bad1,bad1,bad},ctrl(),mem(),fun.unhook(),args.in(i-1),args.in(i)));
+            Parse bat1 = bats.at(i-1); // Prior term start
+            Node call = do_call(new Parse[]{baf,bat1,bat},args(fun.unhook(),args.in(i-1),args.in(i)));
             args.set_def(i-1,call,_gvn);
-            funs.remove(i);  args.remove(i);  bads.remove(i);  i--;
+            funs.remove(i);  args.remove(i);  bafs.remove(i);  bats.remove(i);  i--;
           }
         }
         max--;
       }
       if( funs.last() != null ) funs.pop().unhook();
-      return args.del(0);       // Return the remaining expression
+      term = args.del(0);       // Return the remaining expression
     }
+    return term;
   }
 
-  /** Parse a term of a lisp-like application.  Field lookups and C-like calls
-   *  associate have higher precedence than lisp-like application.
-   *    term = arg post
-   *    post = e | _ arg post
+  /** Any number field-lookups or function applications, then an optional assigment
+   *    term = id++ | id--
+   *    term = uniop term
+   *    term = tfact [tuple | .field | '['stmts']' ]* [.field[:]=stmt | '['stmts ']:=' stmt   | .field++ | .field-- | e]
    */
   private Node term() {
-    // Normal term expansion
-    Node n = arg();
-    if( n == null ) return null;
-    while( true ) {             // Repeated application or field lookup is fine
-      int oldx = _x;            // Parser reset point
-      skipWS();                 // Skip to start of 1st arg
-      int arg_start = _x;       // For errors
-      Node arg = arg();         // Get argument
-      if( arg == null )         // just 1 arg is just the arg
-        return n;
-      Type tn = _gvn.type(n);
-      boolean may_fun = tn.isa(TypeFunPtr.GENERIC_FUNPTR);
-      if( !may_fun && arg.may_prec() >= 0 ) { _x=oldx; return n; }
-      if( !may_fun &&
-          // Notice the backwards condition: n was already tested for !(tn instanceof TypeFun).
-          // Now we test the other way: the generic function can never be an 'n'.
-          // Only if we cannot 'isa' in either direction do we bail out early
-          // here.  Otherwise, e.g. 'n' might be an unknown function argument
-          // and during GCP be 'lifted' to a function; if we bail out now we
-          // may disallow a legal program with function arguments.  However,
-          // if 'n' is a e.g. Float there's no way it can 'lift' to a function.
-          !TypeFunPtr.GENERIC_FUNPTR.isa(tn) ) {
-        kill(arg);
-        n = err_ctrl2("A function is being called, but "+tn+" is not a function");
-      } else {
-        Parse[] badargs = new Parse[]{null,errMsg(arg_start)}; // The one arg start
-        badargs[0] = errMsg(oldx-1); // Base call error reported at the opening paren
-        n = do_call(new CallNode(true,badargs,ctrl(),mem(),n,arg)); // Pass the 1 arg
-      }
-    } // Else no trailing arg, just return value
-  }
-
-  /** Parse an argument.  Field lookups and C-like calls associate
-   *  left-to-right with higher precedence than lisp-like application.
-   *    arg  = id++ | id--
-   *    arg  = tfact [tuple | .field]* [.field[:]=stmt | .field++ | .field-- | e]
-   */
-  private Node arg() {
-    // Check for id++ / id--
     int oldx = _x;
+    String uni = token();
+    if( uni!=null ) {
+      Node unifun = _e.lookup_filter(uni.intern(),_gvn,1); // UniOp, or null
+      if( unifun==null || unifun.op_prec() <= 0 ) _x=oldx; // Not a uniop
+      else {
+        FunPtrNode fptr = (FunPtrNode)(unifun.keep() instanceof UnresolvedNode ? unifun.in(0) : unifun);
+        // Actual minimal length uniop might be smaller than the parsed token
+        // (greedy algo vs not-greed)
+        _x = oldx+fptr.fun()._name.length();
+        Node term = term();
+        unifun.unhook();
+        if( term==null ) { _x = oldx; return null; }
+        return do_call(errMsgs(0,oldx),args(unifun,term));
+      }
+    }
+
+    // Check for id++ / id--
     String tok = token();
     if( tok != null ) {
       Node n;
@@ -541,6 +554,7 @@ public class Parse {
       if( peek("--") && (n=inc(tok,-1))!=null ) return n;
     }
     _x = oldx;
+
     // Normal term expansion
     Node n = tfact();
     if( n == null ) return null;
@@ -564,18 +578,19 @@ public class Parse {
           Node stmt = stmt();
           if( stmt == null ) n = err_ctrl2("Missing stmt after assigning field '."+fld+"'");
           else set_mem( gvn(new StoreNode(mem(),castnn,n=stmt,fin,fld ,errMsg(fld_start))));
+          return n;
         } else {
           n = gvn(new LoadNode(mem(),castnn,fld,errMsg(fld_start)));
         }
 
       } else if( peek('(') ) {  // Attempt a function-call
-        oldx = _x;
-        skipWS();                 // Skip to start of 1st arg
+        oldx = _x;              // Just past paren
+        skipWS();               // Skip to start of 1st arg
         int first_arg_start = _x;
-        Node arg = tuple(oldx,stmts(),first_arg_start); // Parse argument list
+        Node arg = tuple(oldx-1,stmts(),first_arg_start); // Parse argument list
         if( arg == null )       // tfact but no arg is just the tfact
           { _x = oldx; return n; }
-        Type tn = _gvn.type(n);
+        Type tn = n._val;
         boolean may_fun = tn.isa(TypeFunPtr.GENERIC_FUNPTR);
         if( !may_fun && arg.may_prec() >= 0 ) { _x=oldx; return n; }
         if( !may_fun &&
@@ -592,13 +607,47 @@ public class Parse {
         } else {
           Parse[] badargs = ((NewObjNode)arg.in(0))._fld_starts; // Args from tuple
           badargs[0] = errMsg(oldx-1); // Base call error reported at the opening paren
-          n = do_call(new CallNode(false,badargs,ctrl(),mem(),n,arg)); // Pass the tuple
+          n = do_call0(false,badargs,args(n,arg)); // Pass the tuple
         }
 
       } else {
-        return n;               // Just an arg
+        // Check for balanced op
+        Node bfun = bal_open();   // Balanced op read
+        if( bfun!=null ) {
+          oldx = _x-1;            // Token start
+          skipWS();
+          int oldx2 = _x;
+          Node idx = stmts();     // Index expression
+          tok = token();
+          if( idx==null || tok==null ) return err_ctrl2("Missing stmts after '"+tok+"'");
+          _x -= tok.length(); // Unwind, since token length depends on match
+          // Need to find which balanced op close.  Find the longest matching name
+          FunPtrNode fptr=null;
+          if( bfun instanceof UnresolvedNode ) {
+            for( Node def : bfun._defs ) {
+              FunPtrNode def0 = (FunPtrNode)def;
+              if( tok.startsWith(def0.fun()._bal_close) &&
+                  (fptr==null || fptr.fun()._bal_close.length() < def0.fun()._bal_close.length()) )
+                fptr = def0;
+            }
+          } else fptr = (FunPtrNode)bfun;
+          require(fptr.fun()._bal_close,oldx);
+          if( fptr.fun().nargs()==3 ) { // display, array, index
+            n = do_call(errMsgs(oldx,oldx2),args(fptr,n,idx));
+          } else {
+            assert fptr.fun().nargs()==4; // display, array, index, value
+            skipWS();
+            int oldx3 = _x;
+            Node val = stmt();
+            if( val==null ) return err_ctrl2("Missing stmt after '"+fptr.fun()._bal_close+"'");
+            n = do_call(errMsgs(oldx,oldx2,oldx3),args(fptr,n,idx,val));
+          }
+        } else {
+          break;                // Not a balanced op
+        }
       }
-    } // Else no trailing arg, just return value
+    }
+    return n;
   }
 
   // Handle post-increment/post-decrement operator.
@@ -624,7 +673,7 @@ public class Parse {
       return err_ctrl1(Node.ErrMsg.forward_ref(this,((FunPtrNode)n).fun()));
     // Do a full lookup on "+", and execute the function
     Node plus = _e.lookup_filter("+",_gvn,2);
-    Node sum = do_call(new CallNode(true,errMsgs(2),ctrl(),mem(),plus,n.keep(),con(TypeInt.con(d))));
+    Node sum = do_call(errMsgs(0,_x,_x),args(plus,n.keep(),con(TypeInt.con(d))));
     // Active memory for the chosen scope, after the call to plus
     set_mem(gvn(new StoreNode(mem(),ptr,sum,TypeStruct.FRW,tok,errMsg())));
     return n.unhook();          // Return pre-increment value
@@ -649,6 +698,8 @@ public class Parse {
    *  fact = "string"  // string
    *  fact = (stmts)   // General statements parsed recursively
    *  fact = (tuple,*) // tuple; first comma required, trailing comma not required
+   *  fact = balop+ stmts balop-           // Constructor with initial size
+   *  fact = balop+ stmts[, stmts]* balop- // Constructor with initial elements
    *  fact = {binop}   // Special syntactic form of binop; no spaces allowed; returns function constant
    *  fact = {uniop}   // Special syntactic form of uniop; no spaces allowed; returns function constant
    *  fact = {func}    // Anonymous function declaration
@@ -675,7 +726,7 @@ public class Parse {
     // Anonymous function or operator
     if( peek1(c,'{') ) {
       String tok = token0();
-      Node op = tok == null ? null : _e.lookup_filter(tok.intern(),_gvn,2); // TODO: filter by >2 not ==3
+      Node op = tok == null ? null : _e.lookup(tok.intern()); // TODO: filter by >2 not ==3
       if( peek('}') && op != null && op.op_prec() > 0 ) {
         // If a primitive unresolved, clone to give a proper error message.
         if( op instanceof UnresolvedNode && op.is_prim() )
@@ -692,10 +743,11 @@ public class Parse {
     String tok = token0();
     if( tok == null ) { _x = oldx; return null; }
     tok = tok.intern();
-    if( tok.equals("=") || tok.equals("^"))
+    if( Util.eq(tok,"=") || Util.eq(tok,"^") )
       { _x = oldx; return null; } // Disallow '=' as a fact, too easy to make mistakes
     ScopeNode scope = lookup_scope(tok,false);
-    if( scope == null ) { // Assume any unknown ref is a forward-ref of a recursive function
+    if( scope == null ) { // Assume any unknown id is a forward-ref of a recursive function
+      if( isOp(tok) ) { _x = oldx; return null; } // Ops cannot be forward-refs
       Node fref = gvn(FunPtrNode.forward_ref(_gvn,tok,errMsg(oldx)));
       // Place in nearest enclosing closure scope
       _e._scope.stk().create(tok.intern(),fref,TypeStruct.FFNL,_gvn);
@@ -703,10 +755,13 @@ public class Parse {
     }
     Node def = scope.get(tok);    // Get top-level value; only sane if no stores allowed to modify it
     // Disallow uniop and binop functions as factors.  Only possible if trying
-    // to use an operator as a factor, such as "plus = +" or "f(1,+,2)".
+    // to use an operator as a factor, such as "plus = {+}" or "f(1,{+},2)".
     if( def.op_prec() > 0 ) { _x = oldx; return null; }
     // Forward refs always directly assigned into scope and never updated.
     if( def.is_forward_ref() ) return def;
+    // Balanced ops are similar to "{}", "()" or "@{}".
+    if( def.op_prec()==0 )
+      return bfact(oldx,def);
 
     // Else must load against most recent display update.  Get the display to
     // load against.  If the scope is local, we load against it directly,
@@ -736,7 +791,7 @@ public class Parse {
     TypeStruct mt_tuple = TypeStruct.make(false,new String[]{"^"},TypeStruct.ts(Type.XNIL),new byte[]{TypeStruct.FFNL},true);
     NewObjNode nn = new NewObjNode(false,BitsAlias.RECORD,mt_tuple,con(Type.XNIL));
     for( int i=0; i<args._len; i++ )
-      nn.create_active((""+i).intern(),args.at(i),TypeStruct.FFNL,_gvn);
+      nn.create_active((""+i).intern(),args.at(i),TypeStruct.FFNL);
     nn._fld_starts = bads.asAry();
     NewObjNode nnn = (NewObjNode)gvn(nn);
     nnn.no_more_fields();
@@ -782,7 +837,7 @@ public class Parse {
     // Push an extra hidden display argument.  Similar to java inner-class ptr
     // or when inside of a struct definition: 'this'.
     Node parent_display = _e._scope.ptr();
-    TypeMemPtr tpar_disp = (TypeMemPtr)_gvn.type(parent_display); // Just a TMP of the right alias
+    TypeMemPtr tpar_disp = (TypeMemPtr)parent_display._val; // Just a TMP of the right alias
     ids .push("^");
     ts  .push(tpar_disp);
     bads.push(null);
@@ -791,7 +846,7 @@ public class Parse {
     while( true ) {
       String tok = token();
       if( tok == null ) { _x=oldx; break; } // not a "[id]* ->"
-      if( tok.equals("->") ) break; // End of argument list
+      if( Util.eq((tok=tok.intern()),"->") ) break; // End of argument list
       if( !isAlpha0((byte)tok.charAt(0)) ) { _x=oldx; break; } // not a "[id]* ->"
       Type t = Type.SCALAR;    // Untyped, most generic type
       Parse bad = errMsg();    // Capture location in case of type error
@@ -808,7 +863,7 @@ public class Parse {
           skipNonWS();         // Skip possible type sig, looking for next arg
         }
       }
-      ids .add(tok.intern());   // Accumulate args
+      ids .add(tok);   // Accumulate args
       ts  .add(t  );
       bads.add(bad);
     }
@@ -870,7 +925,7 @@ public class Parse {
     s.early_kill();
     if( ctrl == null ) return rez.unhook(); // No other exits to merge into
     set_ctrl(ctrl=init(ctrl.add_def(ctrl())));
-    _gvn.setype(ctrl,Type.CTRL);
+    ctrl._val = Type.CTRL;
     mem.set_def(0,ctrl,null);
     val.set_def(0,ctrl,null);
     set_mem (gvn(mem.add_def(mem())));
@@ -896,9 +951,42 @@ public class Parse {
     return   con(Type.XNIL   ) ;
   }
 
+  /** A balanced operator as a fact().  Any balancing token can be used.
+   *  bterm = [ stmts ]              // size  constructor
+   *  bterm = [ stmts, [stmts,]* ]   // tuple constructor
+   */
+  Node bfact(int oldx, Node bfun) {
+    skipWS();
+    int oldx2 = _x;             // Start of stmts
+    Node s = stmts();
+    if( s==null ) { _x = oldx; return null; } // A bare "()" pair is not a statement
+    if( peek(',') ) {
+      _x --;                    // Reparse the ',' in tuple
+      throw com.cliffc.aa.AA.unimpl();
+    }
+    require(bal_fun(bfun)._bal_close,oldx);
+    return do_call(errMsgs(oldx,oldx2),args(bfun,s));
+  }
+  private FunNode bal_fun(Node bfun) {
+    return ((FunPtrNode)(bfun instanceof UnresolvedNode ? bfun.in(0) : bfun)).fun();
+  }
+
+  // Lookup a balanced open function of 2 or 3 arguments.
+  Node bal_open() {
+    int oldx = _x;
+    String bal = token();
+    if( bal==null ) return null;
+    Node bfun = _e.lookup_filter(bal.intern(),_gvn,0); // No nargs filtering
+    if( bfun==null || bfun.op_prec() != 0 ) { _x=oldx; return null; }
+    // Actual minimal length uniop might be smaller than the parsed token
+    // (greedy algo vs not-greed)
+    _x = oldx+bal_fun(bfun)._name.length();
+    return bfun;
+  }
+
   // Add a typecheck into the graph, with a shortcut if trivially ok.
   private Node typechk(Node x, Type t, Node mem, Parse bad) {
-    return t == null || _gvn.type(x).isa(t) ? x : gvn(new TypeNode(mem,x,t,bad));
+    return t == null || x._val.isa(t) ? x : gvn(new TypeNode(mem,x,t,bad));
   }
 
   private String token() { skipWS();  return token0(); }
@@ -917,6 +1005,12 @@ public class Parse {
     if( c=='-' && _x-x>2 && _buf[x+1]=='>' ) // Disallow leading "->", confusing with function parameter list end; eg "not={x->!x}"
       _x=x+2;                                // Just return the "->"
     return new String(_buf,x,_x-x);
+  }
+  static boolean isOp(String s) {
+    if( !isOp0((byte)s.charAt(0)) ) return false;
+    for( int i=1; i<s.length(); i++ )
+      if( !isOp1((byte)s.charAt(i)) ) return false;
+    return true;
   }
 
   // Parse a number; WS already skipped and sitting at a digit.  Relies on
@@ -954,20 +1048,21 @@ public class Parse {
       if( c=='\\' ) throw AA.unimpl();
       if( _x == _buf.length ) return null;
     }
-    TypeStr ts = TypeStr.con(new String(_buf,oldx,_x-oldx-1).intern());
+    String str = new String(_buf,oldx,_x-oldx-1).intern();
     // Convert to ptr-to-constant-memory-string
-    NewStrNode nnn = gvn( new NewStrNode(ts,con(ts))).keep();
+    NewNode nnn = (NewNode)gvn( new NewStrNode.ConStr(str) );
     set_mem(Env.DEFMEM.make_mem_proj(_gvn,nnn,mem()));
-    return gvn( new ProjNode(1, nnn.unhook()));
+    return gvn( new ProjNode(1, nnn));
   }
 
   /** Parse a type or return null
-   *  type = tcon | tfun | tstruct | ttuple | tvar  // Type choices
+   *  type = tcon | tfun | tary | tstruct | ttuple | tvar  // Type choices
    *  tcon = int, int[1,8,16,32,64], flt, flt[32,64], real, str[?]
-   *  tfun = {[[type]* ->]? type } // Function types mirror func decls
-   *  tmod = = | := | ==  // '=' is r/final, ':=' is r/w, '==' is read-only
+   *  tary = '[' type? ']'                 // Cannot specify type for array size
+   *  tfun = {[[type]* ->]? type }         // Function types mirror func decls
+   *  tmod = = | := | ==                   // '=' is r/final, ':=' is r/w, '==' is read-only
    *  tstruct = @{ [id [tmod [type?]];]*}  // Struct types are field names with optional types.  Spaces not allowed
-   *  ttuple = ([type?] [,[type?]]*) // List of types, trailing comma optional
+   *  ttuple = ([type?] [,[type?]]*)       // List of types, trailing comma optional
    *  tvar = A previously declared type variable
    *
    *  Unknown tokens when type_var is false are treated as not-a-type.  When
@@ -988,7 +1083,7 @@ public class Parse {
     if( !(t instanceof TypeObj) ) return t; // Primitives are not wrapped
     // Automatically convert to reference for fields.
     // Make a reasonably precise alias.
-    int type_alias = t instanceof TypeStruct ? BitsAlias.RECORD : BitsAlias.STR;
+    int type_alias = t instanceof TypeStruct ? BitsAlias.RECORD : (t instanceof TypeStr ? BitsAlias.STR : BitsAlias.ARY);
     TypeMemPtr tmp = TypeMemPtr.make(BitsAlias.make0(type_alias),(TypeObj)t);
     return typeq(tmp);          // And check for null-ness
   }
@@ -996,7 +1091,7 @@ public class Parse {
   private Type typeq(Type t) { return peek_noWS('?') ? t.meet_nil(Type.XNIL) : t; }
 
   // No mod is r/w.  ':=' is read-write, '=' is final.
-  // Currently '-' is  ambiguous with function arrow ->.
+  // Currently '-' is ambiguous with function arrow ->.
   private byte tmod() {
     if( peek_not('=','=') ) { _x--; return TypeStruct.FFNL; } // final     , leaving trailing '='
     if( peek(":="       ) ) { _x--; return TypeStruct.FRW ; } // read-write, leaving trailing '='
@@ -1068,6 +1163,12 @@ public class Parse {
       return peek(')') ? TypeStruct.make_tuple_open(ts.asAry()) : null;
     }
 
+    if( peek('[') ) {
+      Type e = typep(type_var);
+      if( e==null ) e=Type.SCALAR;
+      return peek(']') ? TypeAry.make(TypeInt.INT64,e,TypeObj.OBJ) : null;
+    }
+
     // Primitive type
     int oldx = _x;
     String tok = token();
@@ -1092,6 +1193,10 @@ public class Parse {
     Parse bad = errMsg();       // Generic error
     bad._x = oldx;              // Openning point
     err_ctrl3("Expected closing '"+c+"' but "+(_x>=_buf.length?"ran out of text":"found '"+(char)(_buf[_x])+"' instead"),bad);
+  }
+  private void require( String s, int oldx ) {
+    for( int i=0; i<s.length(); i++ )
+      require(s.charAt(i),oldx);
   }
 
   // Skip WS, return true&skip if match, false & do not skip if miss.
@@ -1171,7 +1276,7 @@ public class Parse {
   public  Node lookup( String tok ) { return _e.lookup(tok); }
   private ScopeNode lookup_scope( String tok, boolean lookup_current_scope_only ) { return _e.lookup_scope(tok,lookup_current_scope_only); }
   public  ScopeNode scope( ) { return _e._scope; }
-  private void create( String tok, Node n, byte mutable ) { _e._scope.stk().create(tok,n,mutable,_gvn ); }
+  private void create( String tok, Node n, byte mutable ) { _e._scope.stk().create(tok,n,mutable,_gvn); }
   private static byte ts_mutable(boolean mutable) { return mutable ? TypeStruct.FRW : TypeStruct.FFNL; }
 
   // Get the display pointer.  The function call
@@ -1186,14 +1291,20 @@ public class Parse {
     while( true ) {
       if( scope == e._scope ) return ptr;
       ptr = gvn(new LoadNode(mmem,ptr,"^",null)); // Gen linked-list walk code, walking display slot
-      assert _gvn.sharptr(ptr,mmem).is_display_ptr();
+      assert ptr.sharptr(mmem).is_display_ptr();
       e = e._par;                                 // Walk linked-list in parser also
     }
   }
 
   // Insert a call, with memory splits.  Wiring happens later, and when a call
   // is wired it picks up projections to merge at the Fun & Parm nodes.
-  private Node do_call( CallNode call0 ) {
+  private Node[] args(Node a0                           ) { return new Node[]{ctrl(),mem(),a0}; }
+  private Node[] args(Node a0, Node a1                  ) { return new Node[]{ctrl(),mem(),a0,a1}; }
+  private Node[] args(Node a0, Node a1, Node a2         ) { return new Node[]{ctrl(),mem(),a0,a1,a2}; }
+  private Node[] args(Node a0, Node a1, Node a2, Node a3) { return new Node[]{ctrl(),mem(),a0,a1,a2,a3}; }
+  private Node do_call( Parse[] bads, Node... args ) { return do_call0(true,bads,args); }
+  private Node do_call0( boolean unpack, Parse[] bads, Node... args ) {
+    CallNode call0 = new CallNode(unpack,bads,args);
     CallNode call = (CallNode)gvn(call0);
     // Call Epilog takes in the call which it uses to track wireable functions.
     // CallEpi internally tracks all wired functions.
@@ -1205,7 +1316,7 @@ public class Parse {
 
   // Whack current control with a syntax error
   private ErrNode err_ctrl1( Node.ErrMsg msg ) { return init(new ErrNode(Env.START,msg)); }
-  private ErrNode err_ctrl2( String msg ) { return init(new ErrNode(Env.START,errMsg(),msg)); }
+  private ErrNode err_ctrl2( String msg ) { return init(new ErrNode(ctrl(),errMsg(),msg)); }
   private void err_ctrl0(String s) { err_ctrl3(s,errMsg()); }
   private void err_ctrl3(String s, Parse open) {
     set_ctrl(gvn(new ErrNode(ctrl(),open,s)));
@@ -1223,9 +1334,11 @@ public class Parse {
   // Delayed error message, just record line/char index and share code buffer
   Parse errMsg() { return errMsg(_x); }
   Parse errMsg(int x) { Parse P = new Parse(this); P._x=x; return P; }
-  Parse[] errMsgs(int n) {      // n==1 or 2 arg operator
-    Parse e = errMsg();
-    return n==1 ? new Parse[]{null,e,e} : new Parse[]{null,e,e,e};
+  Parse[] errMsgs(int... xs) {
+    Parse[] Ps = new Parse[xs.length];
+    for( int i=0; i<xs.length; i++ )
+      Ps[i] = xs[i]==0 ? null : errMsg(xs[i]);
+    return Ps;
   }
 
   // Build a string of the given message, the current line being parsed,
@@ -1258,5 +1371,10 @@ public class Parse {
   }
   @Override public int hashCode() {
     return _src.hashCode()+_x;
+  }
+  @Override public int compareTo(Parse loc) {
+    int x = _src.compareTo(loc._src);
+    if( x!=0 ) return x;
+    return _x - loc._x;
   }
 }

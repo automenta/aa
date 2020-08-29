@@ -30,7 +30,7 @@ public class Env implements AutoCloseable {
 
   // A file-level Env, or below.  Contains user written code.
   Env( Env par, Parse P, boolean is_closure ) {
-    GVN._opt_mode=0;
+    GVN._opt_mode=GVNGCM.Mode.Parse;
     _P = P;
     _par = par;
     ScopeNode s = par._scope;   // Parent scope
@@ -77,25 +77,25 @@ public class Env implements AutoCloseable {
     for( Node use : STK_0._uses ) GVN.unreg(use); // Also the OProj,DProj will rapidly change types
     for( PrimNode prim : PrimNode.PRIMS() )
       STK_0.add_fun(null,prim._name,(FunPtrNode) GVN.xform(prim.as_fun(GVN)), GVN);
-    for( IntrinsicNewNode lib : IntrinsicNewNode.INTRINSICS() )
+    for( NewNode.NewPrimNode lib : NewNode.NewPrimNode.INTRINSICS() )
       STK_0.add_fun(null,lib ._name,(FunPtrNode) GVN.xform(lib .as_fun(GVN)), GVN);
     // Top-level constants
-    STK_0.create_active("math_pi", GVN.con(TypeFlt.PI),TypeStruct.FFNL,GVN);
+    STK_0.create_active("math_pi", GVN.con(TypeFlt.PI),TypeStruct.FFNL);
     // Now that all the UnresolvedNodes have all possible hits for a name,
     // register them with GVN.
     for( Node val : STK_0._defs )  if( val instanceof UnresolvedNode ) GVN.init0(val);
-    GVN.rereg(STK_0,STK_0.value(GVN));
-    for( Node use : STK_0._uses ) GVN.rereg(use,use.value(GVN));
+    GVN.rereg(STK_0,STK_0.value(GVN._opt_mode));
+    for( Node use : STK_0._uses ) GVN.rereg(use,use.value(GVN._opt_mode));
     STK_0.no_more_fields();
-    GVN.rereg(SCP_0,SCP_0.value(GVN));
+    GVN.rereg(SCP_0,SCP_0.value(GVN._opt_mode));
     // Uplift all types once, since early Parm:mem got early versions of prims,
     // and later prims *added* choices which *lowered* types.
     for( int i=0; i<3; i++ )
       for( Node n : GVN.valsKeySet() )
-        GVN.setype(n,n.value(GVN));
+        n.xval(GVN._opt_mode);
     GVN.add_work(MEM_0);
     // Run the worklist dry
-    GVN.iter(1);
+    GVN.iter(GVNGCM.Mode.PesiNoCG);
 
     if( first_time ) record_for_top_reset2();
     return top;
@@ -154,7 +154,7 @@ public class Env implements AutoCloseable {
     BitsRPC   .reset_to_init0();
     GVN       .reset_to_init0();
     FunNode   .reset();
-    IntrinsicNewNode.reset();
+    NewNode.NewPrimNode.reset();
     PrimNode  .reset();
     DISPLAYS = BitsAlias.EMPTY; // Reset aliases declared as Displays
   }
@@ -176,19 +176,26 @@ public class Env implements AutoCloseable {
   // Test support, return top-level name type
   Type lookup_valtype( String name ) {
     Node n = lookup(name);
-    Type t = GVN.type(n);
-    if( !(n instanceof UnresolvedNode) ) return t;
+    if( !(n instanceof UnresolvedNode) ) return n._val;
     // For unresolved, use the ambiguous type
-    GVN._opt_mode=2;
-    t = n.value(GVN);
-    return t;
+    return n.value(GVNGCM.Mode.Opto);
   }
 
-  // Lookup the name.  If the result is an UnresolvedNode of functions, filter out all
-  // the wrong-arg-count functions.  Only returns nodes registered with GVN.
+  // Lookup the operator name.  Use the longest name that's found, so that long
+  // strings of operator characters are naturally broken by (greedy) strings.
+  // If nargs is positive, filter by nargs
   Node lookup_filter( String name, GVNGCM gvn, int nargs ) {
-    Node n = lookup(name);
-    return n == null ? null : (n instanceof UnresolvedNode ? ((UnresolvedNode)n).filter(gvn,nargs) : n);
+    if( !Parse.isOp(name) ) return null; // Limit to operators
+    for( int i=name.length(); i>0; i-- ) {
+      Node n = lookup(name.substring(0,i).intern());
+      if( n != null ) {
+        if( nargs == 0 ) return n;
+        return n instanceof UnresolvedNode
+          ? ((UnresolvedNode)n).filter(gvn,nargs)
+          : ((    FunPtrNode)n).filter(gvn,nargs);
+      }
+    }
+    return null;
   }
 
   // Update function name token to Node mapping in the current scope

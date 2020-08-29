@@ -13,18 +13,18 @@ public class ConNode<T extends Type> extends Node {
   @Override
   public String xstr() { return Env.ALL_CTRL == this ? "ALL_CTL" : _t.toString(); }
   @Override public Node ideal(GVNGCM gvn, int level) { return null; }
-  @Override public Type value(GVNGCM gvn) {
+  @Override public Type value(GVNGCM.Mode opt_mode) {
     // ALL_CTRL is used for unknown callers; during and after GCP there are no
     // unknown callers.  However, we keep the ALL_CTRL for primitives so we can
     // reset the compilation state easily.
-    if( gvn._opt_mode>=2 && Env.ALL_CTRL == this ) return Type.XCTRL;
+    if( opt_mode._CG && Env.ALL_CTRL == this ) return Type.XCTRL;
     return _t.simple_ptr();
   }
-  @Override public TypeMem live( GVNGCM gvn) {
+  @Override public TypeMem live(GVNGCM.Mode opt_mode) {
     // If any use is alive, the Con is alive... but it never demands memory.
     // Indeed, it may supply memory.
     for( Node use : _uses )
-      if( use._live != TypeMem.DEAD && use.live_use(gvn, this) != TypeMem.DEAD )
+      if( use._live != TypeMem.DEAD && use.live_use(opt_mode,this) != TypeMem.DEAD )
         return TypeMem.ALIVE;
     return TypeMem.DEAD;
   }

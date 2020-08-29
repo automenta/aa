@@ -7,7 +7,7 @@ import java.util.function.Predicate;
 
 public class TypeInt extends Type<TypeInt> {
   private byte _x;        // -2 bot, -1 not-null, 0 con, +1 not-null-top +2 top
-  private byte _z;        // bitsiZe, one of: 1,8,16,32,64
+  public  byte _z;        // bitsiZe, one of: 1,8,16,32,64
   private long _con;      // hi or lo according to _x
   private TypeInt ( int x, int z, long con ) { super(TINT); init(x,z,con); }
   private void init(int x, int z, long con ) { super.init(TINT); _x=(byte)x; _z=(byte)z; _con = con; }
@@ -47,7 +47,7 @@ public class TypeInt extends Type<TypeInt> {
   static public  final TypeInt XINT1  = make( 2, 1,0);
   static public  final TypeInt NINT8  = make(-1, 8,0);
   static public  final TypeInt NINT64 = make(-1,64,0);
-  static         final TypeInt ZERO   = (TypeInt)new TypeInt(0,1,0).hashcons(); // Not exposed since not the canonical NIL
+  static public  final TypeInt ZERO   = (TypeInt)new TypeInt(0,1,0).hashcons();
   static final TypeInt[] TYPES = new TypeInt[]{INT64,INT32,INT16,BOOL,TRUE,XINT1,NINT64};
   static void init1( HashMap<String,Type> types ) {
     types.put("bool" ,BOOL);
@@ -72,6 +72,7 @@ public class TypeInt extends Type<TypeInt> {
     case TMEMPTR:
     case TRPC:   return cross_nil(t);
     case TFUNSIG:
+    case TARY:
     case TLIVE:
     case TOBJ:
     case TSTR:

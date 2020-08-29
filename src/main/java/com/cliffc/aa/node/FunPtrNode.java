@@ -48,7 +48,7 @@ public final class FunPtrNode extends Node {
 
     // Remove unused displays.  Track uses; Calls with no FPClosure are OK.
     // Uses storing the FPTR and passing it along are dangerous.
-    if( gvn._opt_mode>0 && !(display() instanceof ConNode) ) {
+    if( gvn._opt_mode!=GVNGCM.Mode.Parse && !(display() instanceof ConNode) ) {
       boolean safe=true;
       for( Node use : _uses )  {
         if( !(use instanceof CallNode) ) { safe=false; break; }
@@ -60,41 +60,43 @@ public final class FunPtrNode extends Node {
         if( !safe ) break;
       }
       if( safe ) {              // No unsafe users; nuke display
-        TypeMemPtr tdisp = (TypeMemPtr)gvn.type(display());
+        TypeMemPtr tdisp = (TypeMemPtr)display()._val;
         return set_def(1,gvn.con(tdisp.make_from(TypeStr.NO_DISP)),gvn); // No display needed
       }
     }
 
     return null;
   }
-  @Override public Type value(GVNGCM gvn) {
+  @Override public Type value(GVNGCM.Mode opt_mode) {
     if( !(in(0) instanceof RetNode) )
       return TypeFunPtr.EMPTY;
     RetNode ret = ret();
     Node disp = display();
-    Type tdisp = gvn.type(disp);
+    Type tdisp = disp._val;
     if( !(tdisp instanceof TypeMemPtr) ) return tdisp.oob();
     return TypeFunPtr.make(ret._fidx,ret._nargs,(TypeMemPtr)tdisp);
   }
 
   @Override public boolean basic_liveness() { return true; }
-  @Override public TypeMem live( GVNGCM gvn) {
+  @Override public TypeMem live(GVNGCM.Mode opt_mode) {
     // Pre-GCP, might be used anywhere (still finding the CFG)
-    return gvn._opt_mode < 2 ? TypeMem.ESCAPE : super.live(gvn);
+    return !opt_mode._CG ? TypeMem.ESCAPE : super.live(opt_mode);
   }
-  @Override public TypeMem live_use( GVNGCM gvn, Node def ) {
+  @Override public TypeMem live_use(GVNGCM.Mode opt_mode, Node def ) {
     return def==ret() ? TypeMem.ANYMEM : TypeMem.ESCAPE;
+  }
+
+  // Filter out all the wrong-arg-count functions
+  public Node filter( GVNGCM gvn, int nargs ) {
+    // User-nargs are user-visible #arguments.
+    // Fun-nargs include the display, hence the +1.
+    return fun().nargs() == nargs+1 ? this : null;
   }
 
   // Return the op_prec of the returned value.  Not sensible except when called
   // on primitives.
   @Override public byte op_prec() { return ret().op_prec(); }
 
-  // True if function is uncalled (but possibly returned or stored as
-  // a constant).  Such code is not searched for errors.
-  @Override boolean is_uncalled(GVNGCM gvn) {
-    return !is_forward_ref() && !ret().is_copy() && ((TypeTuple)gvn.type(ret())).at(0)==Type.XCTRL;
-  }
   // Instead of returning the pre-call memory on true, returns self.
   // Changes as the graph changes, because works purely off of graph shape.
   @Override Node is_pure_call() {
@@ -141,12 +143,12 @@ public final class FunPtrNode extends Node {
     dret._fidx  = rfun._fidx ;
     gvn.rereg(dret,tret);
     FunPtrNode fptr = dret.funptr();
-    gvn.setype(fptr,fptr.value(gvn));
+    fptr.xval(gvn._opt_mode);
 
     // Replace the forward_ref with the def.
     gvn.subsume(this,def);
     dfun.bind(tok);
   }
 
-  @Override public ErrMsg err(GVNGCM gvn,boolean fast) { return is_forward_ref() ? _referr : null; }
+  @Override public ErrMsg err( boolean fast ) { return is_forward_ref() ? _referr : null; }
 }

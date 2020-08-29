@@ -19,7 +19,7 @@ public class RegionNode extends Node {
     // Node, and return-for-progress.
     int dlen = _defs.len();
     for( int i=1; i<dlen; i++ )
-      if( gvn.type(in(i))==Type.XCTRL && !in(i).is_prim() ) { // Found dead path; cut out
+      if( val(i)==Type.XCTRL && !in(i).is_prim() ) { // Found dead path; cut out
         for( Node phi : _uses )
           if( phi instanceof PhiNode ) {
             assert !phi.is_dead();
@@ -27,7 +27,7 @@ public class RegionNode extends Node {
             phi.remove(i,gvn);
             if( !phi.is_dead() ) gvn.rereg(phi,oldt);
           }
-        if( !is_dead() ) { unwire(gvn,i);  remove(i,gvn); }
+        if( !is_dead() ) { unwire(gvn,i);  if( !is_dead() ) remove(i,gvn); }
         return this; // Progress
       }
 
@@ -58,7 +58,7 @@ public class RegionNode extends Node {
     // Check for stacked Region (not Fun) and collapse.
     Node stack = stacked_region(gvn);
     if( stack != null ) return stack;
-      
+
     return null;
   }
 
@@ -82,7 +82,7 @@ public class RegionNode extends Node {
             phi.in(idx) != rphi )               // Matching along idx
           return null;                          // Not exact shape
       }
-    
+
     // Collapse stacked Phis
     for( Node phi : _uses )
       if( phi._op == OP_PHI ) {
@@ -95,7 +95,7 @@ public class RegionNode extends Node {
         assert !stacked_phi || rphi.is_dead();
         gvn.rereg(phi,oldt);
       }
-    
+
     // Collapse stacked Region
     for( int i = 1; i<r._defs._len; i++ )
       add_def(r.in(i));
@@ -103,19 +103,19 @@ public class RegionNode extends Node {
     assert r.is_dead();
     return this;
   }
-  
+
   void unwire(GVNGCM gvn, int idx) { }
 
-  @Override public Type value(GVNGCM gvn) {
+  @Override public Type value(GVNGCM.Mode opt_mode) {
     if( _defs._len==2 && in(1)==this ) return Type.XCTRL; // Dead self-loop
     for( int i=1; i<_defs._len; i++ ) {
-      Type c = gvn.type(in(i));
+      Type c = val(i);
       if( c == Type.CTRL || c == Type.ALL )
         return Type.CTRL;
     }
     return Type.XCTRL;
   }
-  @Override public TypeMem live_use( GVNGCM gvn, Node def ) { return TypeMem.ALIVE; }
+  @Override public TypeMem live_use(GVNGCM.Mode opt_mode, Node def ) { return TypeMem.ALIVE; }
 
   // Complex dominator tree.  Ok to subset, attempt the easy walk
   @Override Node walk_dom_last(Predicate<Node> P) {

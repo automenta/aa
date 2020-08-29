@@ -96,6 +96,7 @@ public final class TypeFunPtr extends Type<TypeFunPtr> {
     case TINT:
     case TMEMPTR:
     case TRPC:   return cross_nil(t);
+    case TARY:
     case TLIVE:
     case TOBJ:
     case TSTR:
@@ -179,4 +180,8 @@ public final class TypeFunPtr extends Type<TypeFunPtr> {
     return tf;
   }
   @Override TypeFunPtr crush_fld_impl(String fld) { return make(_fidxs,_nargs,_disp.crush_fld_impl(fld)); }
+  @Override public TypeFunPtr widen() {
+    // TODO: Widen to widened sigs
+    return TypeFunPtr.GENERIC_FUNPTR;
+  }
 }
