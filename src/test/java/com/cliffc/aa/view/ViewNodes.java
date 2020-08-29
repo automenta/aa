@@ -13,7 +13,7 @@ import spacegraph.space2d.container.graph.EdgeVis;
 import spacegraph.space2d.container.graph.Graph2D;
 import spacegraph.space2d.container.graph.NodeGraphRenderer;
 import spacegraph.space2d.container.graph.NodeVis;
-import spacegraph.space2d.container.layout.SemiForce2D;
+import spacegraph.space2d.container.layout.Force2D;
 import spacegraph.space2d.widget.button.PushButton;
 
 import java.util.List;
@@ -73,8 +73,8 @@ public class ViewNodes {
 
 
         window(v.update(
-                    //new Force2D()
-                    new SemiForce2D.TreeForce2D<>()
+                    new Force2D()
+                    //new SemiForce2D.TreeForce2D<>()
                 )
                 .render(r)
                 .set(g)

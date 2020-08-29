@@ -1,7 +1,6 @@
 package com.cliffc.aa;
 
 import com.cliffc.aa.node.Node;
-import com.cliffc.aa.type.Type;
 
 /** an implementation of language AA
  */
@@ -21,7 +20,7 @@ public abstract class AA {
     ABV = abv;
   }
   public static void main( String[] args ) {
-    System.out.println(ABV.toString());
+    //System.out.println(ABV.toString());
     Env file = Env.file_scope(Env.top_scope());
     if( args.length > 0 ) System.out.println(Exec.go(file,"args",String.join(" ",args))._t.toString());
     else REPL.go(file);
